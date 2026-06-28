@@ -1,0 +1,2079 @@
+syntax = "proto2";
+
+import "dcg_gcmessages_common.proto";
+import "econ_gcmessages.proto";
+
+message CMsgClientToGCStartMatchmaking {
+  optional .CMsgStartFindingMatchInfo match_info = 2;
+  optional uint64 tourney_id = 3;
+  optional uint32 tourney_phase_id = 4;
+  optional uint32 tourney_series_id = 5;
+  optional .CMsgRegionPingTimesClient ping_times = 6;
+}
+
+message CMsgClientToGCStartMatchmakingResponse {
+  enum EResultCode {
+    k_EResult_OK = 0;
+    k_EResult_AlreadyFindingMatch = 1;
+    k_EResult_PartyMemberInLobby = 2;
+    k_EResult_InvalidClientVersion = 3;
+    k_EResult_MatchmakingDisabled = 4;
+    k_EResult_MatchmakingTooBusy = 5;
+    k_EResult_GauntletClosed = 6;
+    k_EResult_InvalidGauntlet = 7;
+    k_EResult_InternalError = 8;
+    k_EResult_InvalidDeck = 9;
+    k_EResult_HasUnownedCards = 10;
+    k_EResult_TournamentNoMatches = 11;
+    k_EResult_TournamentNoDeck = 13;
+    k_EResult_NoRegionPings = 14;
+  }
+
+  optional .CMsgClientToGCStartMatchmakingResponse.EResultCode result = 1;
+  optional uint32 tournament_opponent_id = 2;
+  optional string debug_message = 3;
+}
+
+message CMsgClientToGCStopMatchmaking {
+}
+
+message CMsgClientToGCStopMatchmakingResponse {
+  optional bool success = 1;
+}
+
+message CMsgGCToClientMatchmakingStopped {
+  enum EReason {
+    k_EResult_Unspecified = 0;
+    k_EResult_VersionUpdated = 1;
+    k_EResult_FailedReadyUp = 2;
+    k_EResult_TourneySeriesClosed = 3;
+  }
+
+  optional .CMsgGCToClientMatchmakingStopped.EReason reason = 1;
+}
+
+message CMsgClientToGCLeaveLobby {
+  optional uint64 lobby_id = 1;
+}
+
+message CMsgClientToGCLeaveLobbyResponse {
+}
+
+message CMsgGCToClientDefaultValidator {
+  optional .CMsgDeckValidator validator = 1;
+}
+
+message CMsgClientWelcomeDCG {
+  optional uint32 currency = 1;
+  repeated .CExtraMsgBlock extra_messages = 2;
+  optional uint32 replay_version = 3;
+}
+
+message CMsgClientToGCJoinChatChannel {
+  optional .EChatRoomType room_type = 1;
+  optional uint64 room_key = 2;
+  optional uint32 sub_room_index = 3;
+  optional uint32 request_id = 4;
+}
+
+message CMsgClientToGCJoinChatChannelResponse {
+  enum EResult {
+    k_EResult_Success = 0;
+    k_EResult_InvalidRoom = 1;
+    k_EResult_PermissionDenied = 2;
+    k_EResult_InternalError = 3;
+    k_EResult_RoomOffline = 4;
+    k_EResult_AlreadyJoined = 5;
+    k_EResult_RateLimited = 6;
+    k_EResult_TooManyRooms = 7;
+    k_EResult_ChatBanned = 8;
+    k_EResult_AccountNotLinked = 9;
+  }
+
+  optional .CMsgClientToGCJoinChatChannelResponse.EResult result = 1;
+}
+
+message CMsgGCToClientChatChannelJoined {
+  optional bool success = 1;
+  optional uint32 request_id = 2;
+  optional fixed64 chat_room_id = 3;
+  optional uint32 sub_room_index = 4;
+  optional bool aliased_user_ids = 5;
+  optional uint32 local_aliased_id = 6;
+}
+
+message CMsgClientToGCSendChatMessage {
+  optional fixed64 chat_room_id = 1;
+  optional string chat_msg = 2;
+}
+
+message CMsgClientToGCSendChatMessageRoll {
+  optional fixed64 chat_room_id = 1;
+  optional uint32 roll_min = 2;
+  optional uint32 roll_max = 3;
+}
+
+message CChatMessageAdditionalData_DiceRoll {
+  optional uint32 roll_value = 1;
+  optional uint32 roll_min = 2;
+  optional uint32 roll_max = 3;
+}
+
+message CMsgGCToClientChatMessage {
+  optional fixed64 chat_room_id = 1;
+  optional uint32 user_id = 2;
+  optional string chat_msg = 3;
+  optional string persona_name = 4;
+  optional .CExtraMsgBlock additional_data = 5;
+  optional uint32 time_stamp = 6;
+}
+
+message CMsgGCToClientUserJoinedChatChannel {
+  optional fixed64 chat_room_id = 1;
+  repeated uint32 joined_user_ids = 2;
+  repeated string joined_persona_names = 3;
+  repeated uint32 left_user_ids = 4;
+}
+
+message CMsgClientToGCLeaveChatChannel {
+  optional fixed64 chat_room_id = 1;
+}
+
+message CMsgClientToGCLeaveChatChannelByKey {
+  optional .EChatRoomType room_type = 1;
+  optional uint64 room_key = 2;
+}
+
+message CMsgClientToGCIsInMatchmaking {
+}
+
+message CMsgClientToGCIsInMatchmakingResponse {
+  optional bool in_matchmaking = 1;
+}
+
+message CMsgClientToGCOpenPackItem {
+  optional uint64 item_id = 1;
+}
+
+message CMsgClientToGCOpenPackItemResponse {
+  message OpenedItem {
+    optional uint32 def_index = 1;
+    optional uint64 item_id = 2;
+  }
+
+  enum EResponse {
+    k_eSuccess = 1;
+    k_eTooManyRequests = 2;
+    k_eInternalError = 3;
+    k_eInvalidItemID = 4;
+    k_eDisabled = 5;
+    k_eRegionLocked = 6;
+  }
+
+  optional .CMsgClientToGCOpenPackItemResponse.EResponse response = 1;
+  repeated .CMsgClientToGCOpenPackItemResponse.OpenedItem items = 2;
+}
+
+message CMsgClientToGCSpectateUser {
+  optional uint32 spectate_account_id = 1;
+}
+
+message CMsgClientToGCSpectateUserResponse {
+  enum EResult {
+    eResult_OK = 1;
+    eResult_NotInGame = 2;
+    eResult_InternalError = 3;
+  }
+
+  optional .CMsgClientToGCSpectateUserResponse.EResult result = 1;
+  optional uint64 match_id = 2;
+  optional fixed64 server_steam_id = 3;
+  optional bytes sdr_key = 4;
+  optional uint32 udp_connect_ip = 5;
+  optional uint32 udp_connect_port = 6;
+}
+
+message CMsgClientToGCGetMatchHistory {
+  optional uint32 account_id = 1;
+}
+
+message CMsgClientToGCGetMatchHistoryResponse {
+  message PlayerDetails {
+    optional uint32 account_id = 1;
+    optional uint32 team_id = 2;
+    optional string deck_code = 3;
+    optional uint32 skill_rating = 4;
+    repeated uint32 tower_health = 5;
+    optional uint32 game_clock = 6;
+    optional uint32 ancient_lane = 7;
+  }
+
+  message MatchDetails {
+    optional uint32 start_time = 1;
+    optional uint32 duration = 2;
+    optional uint32 turns = 3;
+    optional uint64 match_id = 4;
+    optional uint32 outcome = 5;
+    optional .EDCGMatchMode match_mode = 6;
+    repeated .CMsgClientToGCGetMatchHistoryResponse.PlayerDetails player_details = 7;
+    optional uint32 cluster_id = 8;
+    optional uint32 replay_salt = 9;
+    optional uint32 replay_version = 10;
+    optional .EDCGFormat format = 11;
+  }
+
+  enum EResult {
+    eResult_OK = 1;
+    eResult_InvalidAccount = 2;
+    eResult_RateLimited = 3;
+    eResult_AccessDenied = 4;
+    eResult_InternalError = 5;
+    eResult_NoMatchHistory = 6;
+  }
+
+  optional .CMsgClientToGCGetMatchHistoryResponse.EResult result = 1;
+  repeated .CMsgClientToGCGetMatchHistoryResponse.MatchDetails match_details = 2;
+  optional uint32 account_id = 3;
+}
+
+message CMsgClientToGCGetProfileData {
+  optional uint32 account_id = 1;
+}
+
+message CMsgClientToGCGetProfileDataResponse {
+  enum EResult {
+    eResult_OK = 1;
+    eResult_InvalidAccount = 2;
+    eResult_RateLimited = 3;
+  }
+
+  optional .CMsgClientToGCGetProfileDataResponse.EResult result = 1;
+  optional uint32 account_id = 2;
+  optional uint32 player_level = 3;
+  optional uint32 player_badge = 4;
+  optional uint32 mmr_level = 5;
+  optional uint32 mmr_level_score = 6;
+  optional uint32 mmr_leaderboard = 7;
+  optional uint32 mmr_leaderboard_best = 8;
+  optional uint32 wins = 9;
+  optional uint32 losses = 10;
+  optional uint32 ties = 11;
+  optional uint32 first_match_date = 12;
+  optional uint32 default_cardback = 13;
+}
+
+message CMsgClientToGCGetMatchDetails {
+  optional uint64 match_id = 1;
+}
+
+message CMsgClientToGCGetMatchDetailsResponse {
+  message PlayerDetails {
+    optional uint32 account_id = 1;
+    optional uint32 team_id = 2;
+    repeated uint32 heroes = 3;
+    repeated uint32 tower_health = 4;
+    optional string deck_code = 5;
+    optional uint32 skill_rating = 6;
+    optional uint32 ancient_lane = 7;
+  }
+
+  enum EResult {
+    eResult_Success = 0;
+    eResult_InvalidMatch = 1;
+    eResult_NotAuthorized = 2;
+    eResult_InternalError = 3;
+  }
+
+  repeated .CMsgClientToGCGetMatchDetailsResponse.PlayerDetails player_details = 1;
+  optional uint32 start_time = 2;
+  optional uint32 duration = 3;
+  optional uint32 turns = 4;
+  optional uint64 match_id = 5;
+  optional uint32 outcome = 6;
+  optional .EDCGMatchMode match_mode = 7;
+  optional .CMsgClientToGCGetMatchDetailsResponse.EResult result = 8;
+  optional uint32 cluster_id = 9;
+  optional uint32 replay_salt = 10;
+  optional uint32 gauntlet_id = 11;
+  optional .EDCGFormat format = 12;
+}
+
+message CMsgClientToGCSubmitUserFeedback {
+  enum EType {
+    eType_CriticalBug = 1;
+    eType_Bug = 2;
+    eType_Suggestion = 3;
+    eType_Other = 4;
+    eType_General = 5;
+  }
+
+  optional string message_text = 1;
+  optional .CMsgClientToGCSubmitUserFeedback.EType feedback_type = 2;
+  optional string source_info = 3;
+  optional uint32 client_version = 4;
+  optional uint32 screen_width = 5;
+  optional uint32 screen_height = 6;
+}
+
+message CMsgClientToGCSubmitUserFeedbackResponse {
+  enum EResponse {
+    eResponse_Success = 0;
+    eResponse_InternalError = 1;
+    eResponse_InvalidMsg = 2;
+  }
+
+  optional .CMsgClientToGCSubmitUserFeedbackResponse.EResponse response = 1;
+}
+
+message CMsgClientToGCPostMatchSurveyResponse {
+  optional uint64 match_id = 1;
+  optional uint32 question_id = 2;
+  optional uint32 response_value = 3;
+}
+
+message CMsgClientToGCMatchResultScreenAnalytics {
+  message GraphStats {
+    optional uint32 time_spent_s = 1;
+    optional uint32 graph_id = 2;
+    optional bool timeline_view = 3;
+    optional uint32 times_viewed = 4;
+  }
+
+  optional uint32 starting_graph = 1;
+  optional uint64 match_id = 2;
+  repeated .CMsgClientToGCMatchResultScreenAnalytics.GraphStats graph_stats = 3;
+}
+
+message CMsgClientToGCGetQuestMapStatus {
+  optional uint32 quest_id = 1;
+}
+
+message CMsgClientToGCGetQuestMapStatusResponse {
+  optional bool success = 1;
+  repeated uint32 unlocked_nodes = 2;
+}
+
+message CMsgClientToGCClaimQuestMapNode {
+  optional uint32 quest_id = 1;
+  optional uint32 node_id = 2;
+  optional bool deferred_node = 3;
+}
+
+message CMsgClientToGCClaimQuestMapNodeResponse {
+  message CurrencyGrant {
+    optional uint32 currency_id = 1;
+    optional uint32 amount = 2;
+  }
+
+  enum EResult {
+    eResult_Success = 0;
+    eResult_SystemDisabled = 1;
+    eResult_InternalError = 2;
+    eResult_InsufficientCurrency = 3;
+    eResult_NodeUnavailable = 4;
+    eResult_AlreadyUnlocked = 5;
+    eResult_NotDeferredNode = 6;
+    eResult_PriorNodesLocked = 7;
+    eResult_AchievmentsIncomplete = 8;
+  }
+
+  optional .CMsgClientToGCClaimQuestMapNodeResponse.EResult result = 1;
+  repeated uint32 granted_items = 2;
+  repeated .CMsgClientToGCClaimQuestMapNodeResponse.CurrencyGrant granted_currency = 3;
+  repeated uint32 unlocked_nodes = 4;
+}
+
+message CMsgClientToGCQuestDevCommand {
+  optional uint32 quest_id = 1;
+  optional bool reset_progress = 2;
+  optional int32 grant_currency = 3;
+}
+
+message CMsgClientToGCAchievementDevCommand {
+  optional uint32 achievement_id = 1;
+  optional uint32 set_progress = 2;
+  optional int32 add_progress = 3;
+}
+
+message CMsgClientToGCGetAIVsAIMatchConfig {
+}
+
+message CMsgClientToGCGetAIVsAIMatchConfigResponse {
+  optional bool success = 1;
+  optional uint32 ai_match_id = 2;
+  optional string ai_0_deck_code = 3;
+  optional string ai_1_deck_code = 4;
+}
+
+message CMsgClientToGCGetAIVsAIMatchComplete {
+  optional uint32 ai_match_id = 1;
+  optional uint32 winning_player = 2;
+}
+
+message CMsgGCToClientGlobalPhantomLeagues {
+  optional bytes global_deck_bytes = 3;
+}
+
+message CMsgClientToGCJoinGauntlet {
+  optional uint32 gauntlet_id = 1;
+  optional bytes deck_bytes = 2;
+  optional uint32 entry_id = 3;
+  repeated uint64 entry_costs = 4;
+  optional bool select_random_deck = 5;
+}
+
+message CMsgClientToGCJoinGauntletResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidGauntlet = 2;
+    k_eTooBusy = 3;
+    k_eAlreadyInGauntlet = 4;
+    k_eInvalidDeck = 5;
+    k_eMissingItem = 6;
+    k_eInvalidEntryCost = 7;
+    k_eDisabled = 8;
+    k_eHasUnownedCards = 9;
+    k_eRateLimited = 10;
+    k_eRandomDeckNotAllowed = 11;
+  }
+
+  optional .CMsgClientToGCJoinGauntletResponse.EResponse result = 1;
+  optional uint32 available_after = 2;
+}
+
+message CMsgClientToGCAbandonGauntlet {
+  optional uint32 gauntlet_id = 1;
+}
+
+message CMsgClientToGCAbandonGauntletResponse {
+  message RewardItem {
+    optional uint32 def_index = 1;
+  }
+
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidGauntlet = 2;
+    k_eTooBusy = 3;
+    k_eDisabled = 4;
+  }
+
+  optional .CMsgClientToGCAbandonGauntletResponse.EResponse result = 1;
+  repeated .CMsgClientToGCAbandonGauntletResponse.RewardItem reward_items = 2;
+}
+
+message CMsgClientToGCAIGauntletResult {
+  optional uint32 gauntlet_id = 1;
+  optional bool is_win = 2;
+  optional fixed64 secret_key = 3;
+  optional uint32 expected_wins = 4;
+  optional uint32 expected_losses = 5;
+}
+
+message CMsgClientToGCAIGauntletResultResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eFailed = 2;
+    k_eDisabled = 3;
+    k_eBusy = 4;
+    k_eInvalidKey = 5;
+    k_eMismatchedGames = 6;
+  }
+
+  optional .CMsgClientToGCAIGauntletResultResponse.EResponse result = 1;
+}
+
+message CMsgGCToClientAvailableGauntlets {
+  repeated .CMsgGauntletConfig available_gauntlets = 1;
+}
+
+message CMsgClientToGCGetGauntletMatches {
+  optional uint64 gauntlet_instance_id = 1;
+}
+
+message CMsgClientToGCGetGauntletMatchesResponse {
+  message Match {
+    optional uint64 match_id = 1;
+    optional bool win = 2;
+  }
+
+  repeated .CMsgClientToGCGetGauntletMatchesResponse.Match matches = 1;
+}
+
+message CMsgClientToGCRegisterGauntletDeck {
+  optional uint32 gauntlet_id = 1;
+  optional bytes deck_bytes = 2;
+  optional uint32 deck_colors = 3;
+}
+
+message CMsgClientToGCRegisterGauntletDeckResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidGauntlet = 2;
+    k_eDeckAlreadyRegistered = 3;
+    k_eInvalidDeck = 4;
+    k_eHasUnownedCards = 5;
+    k_eDisabled = 6;
+  }
+
+  optional .CMsgClientToGCRegisterGauntletDeckResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCLimitedGrant {
+  optional uint64 limited_instance_id = 1;
+  optional uint32 grant_id = 2;
+}
+
+message CMsgClientToGCLimitedGrantResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidFormat = 2;
+    k_eAlreadyGranted = 3;
+  }
+
+  optional .CMsgClientToGCLimitedGrantResponse.EResponse result = 1;
+  optional uint32 choice_count = 2;
+  repeated uint32 def_index = 3;
+}
+
+message CMsgClientToGCLimitedGrantChoice {
+  optional uint64 limited_instance_id = 1;
+  optional uint32 grant_id = 2;
+  repeated uint32 choice_def_index = 3;
+}
+
+message CMsgClientToGCLimitedGrantChoiceResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidFormat = 2;
+    k_eInvalidChoices = 3;
+    k_eAlreadyGranted = 4;
+  }
+
+  optional .CMsgClientToGCLimitedGrantChoiceResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCLimitedGetFormat {
+  optional uint32 limited_format = 1;
+}
+
+message CMsgClientToGCLimitedGetFormatResponse {
+  optional bool success = 1;
+  optional .CMsgLimitedFormat format_config = 2;
+}
+
+message CMsgClientToGCPrivateLobbyCreate {
+  optional uint32 client_version = 1;
+  optional .CMsgRegionPingTimesClient ping_times = 2;
+}
+
+message CMsgClientToGCPrivateLobbyCreateResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eAlreadyInLobby = 2;
+    k_eDisabled = 3;
+    k_eInvalidVersion = 4;
+    k_eNoRegionPings = 5;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyCreateResponse.EResponse result = 1;
+  optional fixed64 private_lobby_id = 2;
+}
+
+message CMsgClientToGCPrivateLobbyLeave {
+  optional fixed64 private_lobby_id = 1;
+}
+
+message CMsgClientToGCPrivateLobbyLeaveResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eNotInLobby = 2;
+    k_eInMatchMaking = 3;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyLeaveResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCPrivateLobbyJoin {
+  optional fixed64 private_lobby_id = 1;
+  optional uint32 client_version = 2;
+  optional .CMsgRegionPingTimesClient ping_times = 3;
+  optional fixed64 lobby_salt = 4;
+}
+
+message CMsgClientToGCPrivateLobbyJoinResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eAlreadyInLobby = 2;
+    k_eDisabled = 3;
+    k_eInvalidLobbyID = 4;
+    k_eInvalidPermissions = 5;
+    k_eInvalidVersion = 6;
+    k_eNoRegionPings = 7;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyJoinResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCPrivateLobbyAction {
+  enum EAction {
+    k_eSetTeam = 0;
+    k_eSetDeck = 1;
+    k_eKickUser = 3;
+    k_eCancelInvite = 4;
+    k_eCancelFindMatch = 5;
+    k_eSetDecksVisible = 6;
+    k_eSetTimerMode = 7;
+    k_eShareDeck = 8;
+    k_eSetGameMode = 9;
+    k_eSetReady = 10;
+    k_eSetMutations = 11;
+  }
+
+  optional fixed64 private_lobby_id = 1;
+  optional uint32 target_account_id = 2;
+  optional .CMsgClientToGCPrivateLobbyAction.EAction action_id = 3;
+  optional uint64 uint_value = 4;
+  optional bytes bytes_value = 5;
+  optional bool bool_value = 6;
+  optional sint64 sint_value = 7;
+  optional string str_value = 8;
+  repeated uint32 uint_values = 9;
+}
+
+message CMsgClientToGCPrivateLobbyActionResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidLobbyID = 2;
+    k_eInvalidPermissions = 3;
+    k_eInvalidTarget = 4;
+    k_eInvalidValue = 5;
+    k_eInMatchMaking = 6;
+    k_eInMatch = 7;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyActionResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCPrivateLobbyStartMatch {
+  optional fixed64 private_lobby_id = 1;
+}
+
+message CMsgClientToGCPrivateLobbyStartMatchResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eInvalidLobbyID = 3;
+    k_eInvalidPermissions = 4;
+    k_ePlayersMissingDeck = 5;
+    k_eInMatchmaking = 6;
+    k_eInMatch = 7;
+    k_eMissingPlayer = 8;
+    k_eUnownedCards = 9;
+    k_eInvalidVersion = 10;
+    k_ePlayersNotReady = 11;
+    k_eCannotSelectRegion = 12;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyStartMatchResponse.EResponse result = 1;
+  optional uint32 account_id = 2;
+}
+
+message CMsgClientToGCPrivateLobbyInviteUser {
+  optional fixed64 private_lobby_id = 1;
+  optional uint32 invite_account_id = 2;
+}
+
+message CMsgClientToGCPrivateLobbyInviteUserResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eAlreadyInvited = 2;
+    k_eInvalidPermissions = 3;
+    k_eInvalidLobbyID = 4;
+    k_eDisabled = 5;
+    k_eTooManyInvites = 6;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyInviteUserResponse.EResponse result = 1;
+  optional bool user_online = 2;
+}
+
+message CMsgClientToGCPrivateLobbyChallenge {
+  optional uint32 challenge_account_id = 1;
+  optional uint32 client_version = 2;
+  optional .CMsgRegionPingTimesClient ping_times = 3;
+  optional bool both_players_in_constructed_chat = 4;
+}
+
+message CMsgClientToGCPrivateLobbyChallengeResponse {
+  enum EResponse {
+    k_eSuccess = 0;
+    k_eTargetNotFriends = 1;
+    k_eTargetInMatch = 2;
+    k_eTargetOffline = 3;
+    k_eInternalError = 4;
+    k_eCannotMatchmake = 5;
+    k_eInvalidVersion = 6;
+    k_eNoRegionPings = 7;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyChallengeResponse.EResponse result = 1;
+  optional fixed64 private_lobby_id = 2;
+}
+
+message CMsgGCToClientPrivateLobbyEvent {
+  enum EEvent {
+    k_ePlayerKicked = 1;
+    k_eDeckShared = 2;
+    k_eJoinedLobby = 3;
+    k_eMatchCompleted = 4;
+    k_eMatchMakingStopped_User = 5;
+    k_eMatchMakingStopped_Version = 6;
+    k_eMatchMakingStopped_NoServerRegion = 7;
+    k_eLeftLobby = 8;
+    k_eDeclinedInvite = 9;
+  }
+
+  optional fixed64 private_lobby_id = 1;
+  optional .CMsgGCToClientPrivateLobbyEvent.EEvent event = 2;
+  optional uint32 initiator_account_id = 3;
+  optional uint32 target_account_id = 4;
+  optional bytes bytes_data = 5;
+  optional string str_data = 6;
+  optional uint64 uint_data = 7;
+}
+
+message CMsgClientToGCPrivateLobbyClientVersion {
+  optional fixed64 private_lobby_id = 1;
+  optional uint32 client_version = 2;
+}
+
+message CMsgClientToGCPrivateLobbyJoinChatRoom {
+  optional fixed64 private_lobby_id = 1;
+}
+
+message CMsgClientToGCPrivateLobbyJoinChatRoomResponse {
+  enum EResponse {
+    k_eSuccess = 0;
+    k_eInternalError = 1;
+    k_eDisabled = 2;
+    k_eNoChatRoomAvailable = 3;
+    k_eInvalidLobbyID = 4;
+  }
+
+  optional .CMsgClientToGCPrivateLobbyJoinChatRoomResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCMatchSignout {
+  optional uint32 start_time = 1;
+  optional uint32 version = 2;
+  optional .EDCGMatchMode match_mode = 3;
+  optional .CMsgMatchData match_data = 4;
+  repeated .CExtraMsgBlock additional_data = 5;
+  optional uint32 game_mode_id = 6;
+}
+
+message CMsgGCToClientSDRTicket {
+  optional string ticket = 1;
+}
+
+message CMsgClientToGCReplacementSDRTicket {
+  optional fixed64 lobby_id = 1;
+}
+
+message CMsgClientToGCInitialGrantAck {
+  optional uint32 expected_def_index = 1;
+}
+
+message CMsgClientToGCRecycleCards {
+  repeated uint64 item_ids = 1;
+  optional uint32 recycle_offer_version = 2;
+}
+
+message CMsgClientToGCRecycleCardsResponse {
+  message GrantedItem {
+    optional uint32 def_index = 1;
+    optional uint64 item_id = 2;
+  }
+
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eMissingItems = 2;
+    k_eIncorrectVersion = 3;
+    k_eDisabled = 4;
+    k_eInvalidItem = 5;
+    k_eTooManyItems = 6;
+  }
+
+  optional .CMsgClientToGCRecycleCardsResponse.EResponse result = 1;
+  repeated .CMsgClientToGCRecycleCardsResponse.GrantedItem granted_items = 2;
+  optional uint32 resulting_points = 3;
+}
+
+message CMsgClientToGCSetPlayerBadge {
+  optional uint32 player_badge = 1;
+}
+
+message CMsgClientToGCSetDefaultCardback {
+  optional uint32 default_cardback = 1;
+}
+
+message CMsgClientToGCReplacementSDRTicketResponse {
+  optional string ticket = 1;
+  optional string error_message = 2;
+}
+
+message CMsgClientToGCTourneyGetInfo {
+  optional uint64 tourney_id = 1;
+  optional bool subscribe = 2;
+  optional uint32 tourney_salt = 3;
+}
+
+message CMsgClientToGCTourneyGetInfoResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eInvalidID = 1;
+    k_eMissingPermission = 2;
+    k_eSuccess = 3;
+    k_eTooBusy = 4;
+  }
+
+  optional .CMsgClientToGCTourneyGetInfoResponse.EResponse result = 1;
+  optional .CDCGTourney tourney = 2;
+}
+
+message CMsgClientToGCTourneyUnsubscribe {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgGCToClientTourneyUpdated {
+  optional .CDCGTourney tourney = 1;
+}
+
+message CMsgGCToClientTourneySeriesMatchReady {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional uint32 series_id = 3;
+  repeated uint32 accounts_in_mm = 4;
+  repeated uint32 accounts_not_in_mm = 5;
+}
+
+message CMsgGCToClientTourneySeriesMatchNotReady {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional uint32 series_id = 3;
+}
+
+message CMsgCreateTourneyPhase {
+  message DeckSettings {
+    optional .CMsgCreateTourneyPhase.EDeckMode deck_mode = 1;
+    optional uint32 random_colors = 2;
+    optional uint32 limited_format = 3;
+    optional bool register_decks = 4;
+    optional uint32 validator_id = 5;
+  }
+
+  message Swiss {
+    optional .CMsgCreateTourneyPhase.ESwissMatches swiss_matches = 1;
+    optional .CMsgCreateTourneyPhase.ESwissScoring swiss_scoring = 2;
+    optional uint32 num_rounds = 3;
+    optional bool continue_prior_phase = 4;
+  }
+
+  message Bracket {
+    optional uint32 best_of = 1;
+    optional uint32 finals_best_of = 2;
+  }
+
+  message FreeForAll {
+    optional uint32 max_games_per_player = 1;
+    optional uint32 auto_advance_after_s = 2;
+  }
+
+  enum ESwissMatches {
+    k_eBestOfOne = 0;
+    k_eOneMatch = 1;
+    k_eTwoMatches = 2;
+    k_eBestOfThree = 3;
+    k_eBestOfThree_Ties = 4;
+    k_eBestOfFive = 5;
+    k_eBestOfFive_Ties = 6;
+  }
+
+  enum ESwissScoring {
+    k_eWinsThreePoints = 0;
+    k_eWinsTwoPoints = 1;
+  }
+
+  enum EDeckMode {
+    k_eUsePreviousPhase = 0;
+    k_eLimited = 1;
+    k_eAdditionalLimited = 2;
+    k_eConstructed = 3;
+    k_eRandom = 4;
+  }
+
+  optional .CDCGTourney.EFormat format = 1;
+  optional .CMsgCreateTourneyPhase.DeckSettings deck_settings = 2;
+  optional uint32 max_players = 3;
+  optional bool edit_stage = 5;
+  optional .CMsgCreateTourneyPhase.Bracket bracket = 20;
+  optional .CMsgCreateTourneyPhase.Swiss swiss = 21;
+  optional .CMsgCreateTourneyPhase.FreeForAll free_for_all = 22;
+}
+
+message CMsgClientToGCCreateTourney {
+  enum EPrivacy {
+    k_ePrivacy_Default = 0;
+    k_ePrivacy_Public = 1;
+    k_ePrivacy_MembersOnly = 2;
+  }
+
+  optional string tourney_name = 1;
+  optional string tourney_msg = 2;
+  optional string tourney_status = 3;
+  repeated .CMsgCreateTourneyPhase phases = 4;
+  optional bool seed_stage = 5;
+  optional bool advanced_mode = 6;
+  optional .CMsgClientToGCCreateTourney.EPrivacy privacy_mode = 7;
+  optional bool open_spectating = 8;
+  optional uint32 timer_mode = 9;
+}
+
+message CMsgClientToGCCreateTourneyResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eRateLimited = 2;
+    k_eInvalidParams = 3;
+    k_eDisabled = 4;
+    k_eInTooManyTourneys = 5;
+  }
+
+  optional .CMsgClientToGCCreateTourneyResponse.EResponse result = 1;
+  optional uint64 tourney_id = 2;
+}
+
+message CMsgClientToGCTourneyAcceptInvite {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyAcceptInviteResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTourneyJoinClosed = 3;
+    k_eMissingPermissions = 4;
+    k_eTourneyFull = 5;
+    k_eInTooManyTourneys = 6;
+  }
+
+  optional .CMsgClientToGCTourneyAcceptInviteResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyRejectInvite {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyRejectInviteResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+  }
+
+  optional .CMsgClientToGCTourneyRejectInviteResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyRevokeInvite {
+  optional uint64 tourney_id = 1;
+  optional uint32 account_id = 2;
+}
+
+message CMsgClientToGCTourneyRevokeInviteResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eMissingInvite = 4;
+  }
+
+  optional .CMsgClientToGCTourneyRevokeInviteResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyAdminSwitchStage {
+  optional uint64 tourney_id = 1;
+  optional .CDCGTourney.EStage transition_from = 2;
+  optional .CDCGTourney.EStage transition_to = 3;
+}
+
+message CMsgClientToGCTourneyAdminSwitchStageResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInsufficientPlayers = 4;
+    k_eIncorrectStage = 5;
+    k_eInvalidTransition = 6;
+    k_eUnregisteredDecks = 7;
+    k_eMissingEntryFees = 8;
+  }
+
+  optional .CMsgClientToGCTourneyAdminSwitchStageResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyAdminKick {
+  optional uint64 tourney_id = 1;
+  optional uint32 account_id = 2;
+}
+
+message CMsgClientToGCTourneyAdminKickResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidTarget = 4;
+    k_eTourneyClosed = 5;
+  }
+
+  optional .CMsgClientToGCTourneyAdminKickResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyAdminGrantWin {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional uint32 series_id = 3;
+  optional bool grant_bye = 4;
+  optional uint32 winner_id = 5;
+}
+
+message CMsgClientToGCTourneyAdminGrantWinResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidAccount = 4;
+    k_eSeriesCompleted = 5;
+    k_eSeriesNotReady = 6;
+    k_eInvalidSeries = 7;
+  }
+
+  optional .CMsgClientToGCTourneyAdminGrantWinResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyAdminChangeRights {
+  optional uint64 tourney_id = 1;
+  optional uint32 account_id = 2;
+  optional uint32 rights_flags = 3;
+}
+
+message CMsgClientToGCTourneyAdminChangeRightsResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eInvalidAccount = 3;
+    k_eInvalidRights = 4;
+    k_eTourneyClosed = 5;
+    k_ePlayerPoolIsFull = 6;
+    k_eCannotChangePlayer = 7;
+  }
+
+  optional .CMsgClientToGCTourneyAdminChangeRightsResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyRegisterDeck {
+  optional uint64 tourney_id = 1;
+  optional bytes deck_bytes = 2;
+  optional uint32 phase_id = 3;
+  optional uint32 deck_index = 4;
+  optional uint32 shared_by = 5;
+}
+
+message CMsgClientToGCTourneyRegisterDeckResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eUnownedCards = 4;
+    k_eRegistrationClosed = 5;
+    k_eRegistrationNotRequired = 6;
+    k_eInvalidDeck = 7;
+    k_eInvalidDeckIndex = 8;
+    k_eCannotRegisterForPhase = 9;
+    k_ePhaseNotReady = 10;
+    k_eInvalidSharedDeck = 11;
+  }
+
+  optional .CMsgClientToGCTourneyRegisterDeckResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyUserLeave {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyUserLeaveResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eLeaveNotAllowed = 7;
+  }
+
+  optional .CMsgClientToGCTourneyUserLeaveResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyRegisterSharedDeck {
+  optional uint64 tourney_id = 1;
+  optional bytes deck_bytes = 2;
+  optional uint32 shared_slot = 3;
+}
+
+message CMsgClientToGCTourneyRegisterSharedDeckResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidSlot = 4;
+    k_eSlotInUse = 5;
+    k_eUnownedCards = 6;
+    k_eSharingClosed = 7;
+    k_eInvalidDeck = 8;
+  }
+
+  optional .CMsgClientToGCTourneyRegisterSharedDeckResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyGetRegisteredDecks {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyGetRegisteredDecksResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+  }
+
+  optional .CMsgClientToGCTourneyGetRegisteredDecksResponse.EResponse result = 1;
+  repeated .CDCGTourney.PlayerDeck decks = 2;
+}
+
+message CMsgClientToGCTourneyCreateOpenInvite {
+  optional uint64 tourney_id = 1;
+  optional uint32 max_uses = 2;
+  repeated uint32 rights = 3;
+}
+
+message CMsgClientToGCTourneyCreateOpenInviteResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidUses = 4;
+    k_eInvalidStage = 5;
+    k_eInvalidRights = 6;
+    k_eTooManyOutstandingKeys = 7;
+  }
+
+  optional .CMsgClientToGCTourneyCreateOpenInviteResponse.EResponse result = 1;
+  optional fixed64 invite_key = 2;
+}
+
+message CMsgClientToGCTourneyRevokeOpenInvite {
+  optional uint64 tourney_id = 1;
+  optional fixed64 invite_key = 2;
+}
+
+message CMsgClientToGCTourneyRevokeOpenInviteResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidKey = 4;
+    k_eInvalidStage = 5;
+  }
+
+  optional .CMsgClientToGCTourneyRevokeOpenInviteResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyGetOpenInvites {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyGetOpenInvitesResponse {
+  message OpenInvite {
+    optional fixed64 invite_key = 1;
+    optional uint32 created_by = 2;
+    optional uint32 max_uses = 3;
+    optional uint32 times_used = 4;
+    optional uint32 invite_rights = 5;
+  }
+
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidStage = 4;
+  }
+
+  optional .CMsgClientToGCTourneyGetOpenInvitesResponse.EResponse result = 1;
+  repeated .CMsgClientToGCTourneyGetOpenInvitesResponse.OpenInvite open_invites = 2;
+}
+
+message CMsgClientToGCTourneyAdminSwitchPhaseStage {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional .CDCGTourney.EPhaseStage transition_from = 3;
+  optional .CDCGTourney.EPhaseStage transition_to = 4;
+}
+
+message CMsgClientToGCTourneyAdminSwitchPhaseStageResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInsufficientPlayers = 4;
+    k_eIncorrectStage = 5;
+    k_eInvalidTransition = 6;
+    k_eUnregisteredDecks = 7;
+  }
+
+  optional .CMsgClientToGCTourneyAdminSwitchPhaseStageResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyGetOverview {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyGetOverviewResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eTooBusy = 4;
+  }
+
+  optional .CMsgClientToGCTourneyGetOverviewResponse.EResponse result = 1;
+  optional string tourney_name = 2;
+  optional uint32 created_by = 3;
+}
+
+message CMsgClientToGCTourneySetStatus {
+  optional uint64 tourney_id = 1;
+  optional string tourney_status = 2;
+}
+
+message CMsgClientToGCTourneySetStatusResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+  }
+
+  optional .CMsgClientToGCTourneySetStatusResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyAddPhase {
+  optional uint64 tourney_id = 1;
+  optional .CMsgCreateTourneyPhase phase = 2;
+}
+
+message CMsgClientToGCTourneyAddPhaseResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eTooManyPhases = 4;
+    k_eInvalidParams = 5;
+    k_eNotInConfigure = 6;
+  }
+
+  optional .CMsgClientToGCTourneyAddPhaseResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyRemovePhase {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+}
+
+message CMsgClientToGCTourneyRemovePhaseResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eNotLastPhase = 4;
+    k_eNotInConfigure = 5;
+  }
+
+  optional .CMsgClientToGCTourneyRemovePhaseResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneySpectateMatch {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional uint32 series_id = 3;
+  optional bool player_1_perspective = 4;
+}
+
+message CMsgClientToGCTourneySpectateMatchResponse {
+  enum EResponse {
+    k_eSuccess = 1;
+    k_eInternalError = 2;
+    k_eInvalidSeries = 3;
+    k_eMissingPermissions = 4;
+    k_eNotInMatch = 5;
+  }
+
+  optional .CMsgClientToGCTourneySpectateMatchResponse.EResponse result = 1;
+  optional uint64 match_id = 2;
+  optional fixed64 server_steam_id = 3;
+  optional bytes sdr_key = 4;
+  optional uint32 udp_connect_ip = 5;
+  optional uint32 udp_connect_port = 6;
+}
+
+message CMsgClientToGCTourneyInviteList {
+  enum ELimit {
+    k_eLimit_MaxAccounts = 32;
+  }
+
+  optional uint64 tourney_id = 1;
+  repeated uint32 account_ids = 2;
+  repeated uint32 rights = 3;
+}
+
+message CMsgClientToGCTourneyInviteListResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eTooManyInvites = 2;
+    k_eRateLimited = 3;
+    k_eDisabled = 4;
+    k_eTooManyAccounts = 5;
+    k_eTourneyJoinClosed = 6;
+    k_eMissingPermissions = 7;
+    k_eTourneyFull = 8;
+    k_eInvalidRights = 9;
+    k_eNotFriends = 10;
+  }
+
+  optional .CMsgClientToGCTourneyInviteListResponse.EResponse result = 1;
+  repeated uint32 invited_id = 2;
+  repeated uint32 already_invited_id = 3;
+}
+
+message CMsgClientToGCTourneyAdminSetSeedValues {
+  message PlayerSeed {
+    optional uint32 account_id = 1;
+    optional uint32 initial_seed = 2;
+    optional uint32 initial_group = 3;
+  }
+
+  optional uint64 tourney_id = 1;
+  repeated .CMsgClientToGCTourneyAdminSetSeedValues.PlayerSeed player_seeds = 2;
+}
+
+message CMsgClientToGCTourneyAdminSetSeedValuesResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidStage = 5;
+  }
+
+  optional .CMsgClientToGCTourneyAdminSetSeedValuesResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyEditStageSwapPlayers {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional uint32 account_to_swap = 3;
+  optional uint32 swap_with = 4;
+}
+
+message CMsgClientToGCTourneyEditStageSwapPlayersResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_ePhaseNotInEdit = 4;
+    k_eInvalidAccountID = 5;
+  }
+
+  optional .CMsgClientToGCTourneyEditStageSwapPlayersResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyGetLimitedReplay {
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional uint32 account_id = 3;
+}
+
+message CMsgClientToGCTourneyGetLimitedReplayResponse {
+  message LimitedStage {
+    optional uint32 stage_id = 1;
+    optional bytes choice_set = 2;
+    optional bytes choices = 3;
+  }
+
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidPlayer = 4;
+    k_ePhaseNotReady = 5;
+  }
+
+  optional .CMsgClientToGCTourneyGetLimitedReplayResponse.EResponse result = 1;
+  repeated .CMsgClientToGCTourneyGetLimitedReplayResponse.LimitedStage stages = 2;
+  optional .CMsgLimitedFormat format = 3;
+}
+
+message CMsgClientToGCTourneyRejoinChatRoom {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyRejoinChatRoomResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eNoChatRoom = 4;
+  }
+
+  optional .CMsgClientToGCTourneyRejoinChatRoomResponse.EResponse result = 1;
+}
+
+message CMsgGCToClientTourneyMembersMatchmaking {
+  optional uint64 tourney_id = 1;
+  repeated uint32 accounts_in_mm = 2;
+}
+
+message CMsgClientToGCTourneyPayEntryFee {
+  optional uint64 tourney_id = 1;
+  optional uint32 target_account_id = 2;
+  repeated uint64 item_ids = 3;
+}
+
+message CMsgClientToGCTourneyPayEntryFeeResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eInvalidItem = 4;
+    k_eInvalidItemType = 5;
+    k_eItemAlreadyFilled = 6;
+    k_eInvalidTarget = 7;
+    k_eInvalidStage = 8;
+  }
+
+  optional .CMsgClientToGCTourneyPayEntryFeeResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyPlayerAbandon {
+  optional uint64 tourney_id = 1;
+}
+
+message CMsgClientToGCTourneyPlayerAbandonResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eMissingPermissions = 3;
+    k_eUnableToAbandon = 4;
+  }
+
+  optional .CMsgClientToGCTourneyPlayerAbandonResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyChangeValue {
+  enum EValueType {
+    k_eGlobal_SeedStage = 1;
+    k_eGlobal_OpenSpectating = 2;
+    k_eGlobal_TimerMode = 3;
+    k_ePhase_MaxPlayers = 50;
+    k_ePhase_EditStage = 51;
+    k_eSwiss_NumRounds = 100;
+    k_eSwiss_Matches = 101;
+    k_eBracket_BestOf = 150;
+    k_eBracket_FinalsBestOf = 151;
+    k_eFreeForAll_MaxGames = 200;
+  }
+
+  optional uint64 tourney_id = 1;
+  optional uint32 phase_id = 2;
+  optional .CMsgClientToGCTourneyChangeValue.EValueType value_type = 3;
+  optional uint32 int_value = 4;
+}
+
+message CMsgClientToGCTourneyChangeValueResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eInvalidPhase = 3;
+    k_eInvalidValueType = 4;
+    k_eValueIsLocked = 5;
+    k_eInvalidValue = 6;
+    k_ePlayerMismatch = 8;
+    k_eMissingPermissions = 9;
+  }
+
+  optional .CMsgClientToGCTourneyChangeValueResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCTourneyJoinOpenTourney {
+  optional uint32 language = 1;
+  optional string community_key = 2;
+  optional uint32 open_tourney_mode = 3;
+}
+
+message CMsgClientToGCTourneyJoinOpenTourneyResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eInvalidMode = 3;
+    k_eInvalidRequest = 4;
+    k_eTooBusy = 5;
+    k_eRateLimited = 6;
+    k_eInTooManyOpenAlready = 7;
+    k_eInTooManyTotal = 8;
+  }
+
+  optional .CMsgClientToGCTourneyJoinOpenTourneyResponse.EResponse result = 1;
+  optional uint64 joined_tourney_id = 2;
+  optional uint32 cooldown_time_after = 3;
+}
+
+message CMsgClientToGCEventRequestInfo {
+  optional uint32 account_id = 1;
+  optional uint32 event_id = 2;
+}
+
+message CMsgGCToClientEventInfo {
+  message EventState {
+    optional bool event_owned = 1;
+  }
+
+  message Currency {
+    optional uint32 currency_id = 1;
+    optional uint32 balance = 2;
+  }
+
+  message Claim {
+    optional uint32 claim_id = 1;
+    optional uint32 num_claims = 2;
+  }
+
+  message Challenge {
+    optional uint32 slot_id = 1;
+    optional uint32 sequence_id = 2;
+    optional uint32 challenge_id = 3;
+    optional uint32 created_time = 4;
+    optional uint32 claimed = 5;
+    optional uint32 progress = 6;
+    optional uint32 config_id = 7;
+    optional bool active = 8;
+  }
+
+  message VirtualItem {
+    optional uint32 def_index = 1;
+    optional uint32 equip_slot = 2;
+    optional uint32 equip_sub_slot = 3;
+  }
+
+  message VirtualItemEquip {
+    optional uint32 equip_slot = 1;
+    optional uint32 equip_sub_slot = 2;
+    optional uint32 def_index = 3;
+  }
+
+  optional uint32 account_id = 1;
+  optional uint32 event_id = 2;
+  optional .CMsgGCToClientEventInfo.EventState event_state = 3;
+  repeated .CMsgGCToClientEventInfo.Currency currencies = 5;
+  repeated .CMsgGCToClientEventInfo.Claim claims = 6;
+  repeated .CMsgGCToClientEventInfo.Challenge challenges = 7;
+  repeated .CMsgGCToClientEventInfo.VirtualItem virtual_items = 8;
+  repeated .CMsgGCToClientEventInfo.VirtualItemEquip virtual_item_equips = 9;
+  optional bool merge_contents = 10;
+}
+
+message CMsgClientToGCEventRequestInfoSync {
+  optional uint32 account_id = 1;
+  optional uint32 event_id = 2;
+}
+
+message CMsgClientToGCEventRequestInfoSyncResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eInvalidEventID = 3;
+    k_eInvalidPermissions = 4;
+    k_eRateLimited = 5;
+    k_eDisabled = 6;
+    k_eTooBusy = 7;
+  }
+
+  optional .CMsgClientToGCEventRequestInfoSyncResponse.EResponse result = 1;
+  optional .CMsgGCToClientEventInfo event_info = 2;
+}
+
+message CMsgGCToClientEventInfoSerialize {
+  optional .CMsgGCToClientEventInfo event_info = 1;
+  optional uint32 time_stamp = 2;
+  optional uint32 version = 3;
+  optional uint32 account_id = 4;
+}
+
+message CMsgClientToGCEventClaim {
+  optional uint32 event_id = 1;
+  optional uint32 claim_id = 2;
+  optional uint32 starting_value = 3;
+}
+
+message CMsgEventClaimRewards {
+  message Item {
+    optional uint32 def_index = 1;
+    optional uint64 item_id = 2;
+  }
+
+  message Achievement {
+    optional uint32 achievement_id = 1;
+    optional uint32 progress = 2;
+  }
+
+  message Currency {
+    optional uint32 currency_id = 1;
+    optional uint32 grant = 2;
+  }
+
+  message Challenge {
+    optional uint32 challenge_slot = 1;
+    optional uint32 progress = 2;
+    optional bool activated = 3;
+    optional bool rolled = 4;
+  }
+
+  repeated .CMsgEventClaimRewards.Item items = 1;
+  repeated .CMsgEventClaimRewards.Achievement achievements = 2;
+  repeated .CMsgEventClaimRewards.Currency currencies = 3;
+  repeated .CMsgEventClaimRewards.Challenge challenges = 4;
+}
+
+message CMsgClientToGCEventClaimResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eStartingValueMismatch = 2;
+    k_eInvalidEventID = 3;
+    k_eInvalidClaimID = 4;
+    k_eRequirementsNotMet = 5;
+    k_eDisabled = 6;
+    k_eTooBusy = 7;
+  }
+
+  optional .CMsgClientToGCEventClaimResponse.EResponse result = 1;
+  optional .CMsgEventClaimRewards rewards = 2;
+}
+
+message CMsgClientToGCRerollChallenge {
+  optional uint32 event_id = 1;
+  optional uint32 slot_id = 2;
+  optional uint32 sequence_id = 3;
+}
+
+message CMsgClientToGCRerollChallengeResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTooBusy = 3;
+    k_eRateLimited = 4;
+    k_eRerollCooldown = 5;
+    k_eNotComplete = 6;
+    k_eCannotReroll = 7;
+    k_eSequenceMismatch = 8;
+    k_eRewardsNotClaimed = 9;
+    k_eEventInactive = 10;
+    k_eRequiresOwningEvent = 11;
+  }
+
+  optional .CMsgClientToGCRerollChallengeResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCClaimChallengeReward {
+  optional uint32 event_id = 1;
+  optional uint32 slot_id = 2;
+  optional uint32 sequence_id = 3;
+  optional uint32 starting_claimed = 4;
+}
+
+message CMsgClientToGCClaimChallengeRewardResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTooBusy = 3;
+    k_eRateLimited = 4;
+    k_eNotComplete = 5;
+    k_eAlreadyClaimed = 6;
+    k_eSequenceMismatch = 7;
+    k_eEventInactive = 8;
+    k_eNoRewards = 9;
+  }
+
+  optional .CMsgClientToGCClaimChallengeRewardResponse.EResponse result = 1;
+  optional .CMsgEventClaimRewards rewards = 2;
+}
+
+message CMsgClientToGCEventEquipVirtualItem {
+  optional uint32 event_id = 1;
+  optional uint32 def_index = 2;
+  optional uint32 equip_slot = 3;
+  optional uint32 equip_sub_slot = 4;
+}
+
+message CMsgClientToGCEventEquipVirtualItemResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTooBusy = 3;
+    k_eInvalidItem = 4;
+    k_eInvalidSlot = 5;
+    k_eEventInactive = 6;
+  }
+
+  optional .CMsgClientToGCEventEquipVirtualItemResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCDevEventOperation {
+  enum EOperation {
+    k_eOp_Reset = 0;
+    k_eOp_GrantCurrency = 1;
+    k_eOp_GrantChallenge = 2;
+    k_eOp_RerollCooldown = 3;
+    k_eOp_SetCurrencyLevel = 4;
+    k_eOp_SetCurrencyValue = 5;
+    k_eOp_SetChallengeValue = 6;
+    k_eOp_GrantOwnership = 7;
+  }
+
+  optional .CMsgClientToGCDevEventOperation.EOperation operation = 1;
+  optional uint32 event_id = 2;
+  optional uint32 id = 3;
+  optional uint32 amount = 4;
+}
+
+message CMsgClientToGCDevEventOperationResponse {
+}
+
+message CMsgClientToGCPerformAutoActions {
+  optional uint32 event_id = 1;
+  optional bool update_auto_claims = 3;
+  repeated uint32 update_challenge_slots = 4;
+  repeated uint32 update_claims = 5;
+  optional uint32 client_version = 6;
+}
+
+message CMsgClientToGCPerformAutoActionsResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTooBusy = 3;
+    k_eInvalidEventID = 4;
+  }
+
+  optional .CMsgClientToGCPerformAutoActionsResponse.EResponse result = 1;
+  optional .CMsgEventClaimRewards rewards = 2;
+}
+
+message CMsgClientToGCAttemptClientManualClaim {
+  optional uint32 event_id = 1;
+  optional uint32 challenge_slot_id = 2;
+  optional uint32 progress_amount = 3;
+}
+
+message CMsgClientToGCAttemptClientManualClaimResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTooBusy = 3;
+    k_eInvalidChallengeSlotID = 4;
+    k_eChallengeNotClaimable = 5;
+    k_eInvalidEventID = 6;
+  }
+
+  optional .CMsgClientToGCAttemptClientManualClaimResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCEventEquipVirtualItems {
+  message Equip {
+    optional uint32 def_index = 2;
+    optional uint32 equip_slot = 3;
+    optional uint32 equip_sub_slot = 4;
+  }
+
+  optional uint32 event_id = 1;
+  repeated .CMsgClientToGCEventEquipVirtualItems.Equip equip_list = 2;
+}
+
+message CMsgClientToGCEventEquipVirtualItemsResponse {
+  enum EResponse {
+    k_eInternalError = 0;
+    k_eSuccess = 1;
+    k_eDisabled = 2;
+    k_eTooBusy = 3;
+    k_eInvalidItem = 4;
+    k_eInvalidSlot = 5;
+    k_eEventInactive = 6;
+    k_eTooManyEquips = 7;
+    k_eDuplicateEquip = 8;
+  }
+
+  optional .CMsgClientToGCEventEquipVirtualItemsResponse.EResponse result = 1;
+}
+
+message CMsgClientToGCSetCardOwnership {
+  optional uint32 card_percentage = 1;
+}
+
+message CMsgGCToClientMatchmakingStatus {
+  optional uint32 queued_constructed = 1;
+  optional uint32 queued_draft = 2;
+}
+
+enum EGCDCGClientMessages {
+  k_EMsgClientToGCStartMatchmaking = 9010;
+  k_EMsgClientToGCStartMatchmakingResponse = 9011;
+  k_EMsgClientToGCStopMatchmaking = 9012;
+  k_EMsgClientToGCStopMatchmakingResponse = 9013;
+  k_EMsgGCToClientMatchmakingStopped = 9014;
+  k_EMsgClientToGCLeaveLobby = 9015;
+  k_EMsgClientToGCLeaveLobbyResponse = 9016;
+  k_EMsgGCToClientDefaultValidator = 9019;
+  k_EMsgClientToGCJoinChatChannel = 9023;
+  k_EMsgClientToGCJoinChatChannelResponse = 9024;
+  k_EMsgClientToGCSendChatMessage = 9025;
+  k_EMsgGCToClientChatMessage = 9026;
+  k_EMsgGCToClientUserJoinedChatChannel = 9027;
+  k_EMsgClientToGCLeaveChatChannel = 9028;
+  k_EMsgGCToClientChatChannelJoined = 9029;
+  k_EMsgClientToGCIsInMatchmaking = 9030;
+  k_EMsgClientToGCIsInMatchmakingResponse = 9031;
+  k_EMsgClientToGCOpenPackItem = 9036;
+  k_EMsgClientToGCOpenPackItemResponse = 9037;
+  k_EMsgClientToGCLeaveChatChannelByKey = 9040;
+  k_EMsgClientToGCSendChatMessageRoll = 9041;
+  k_EMsgClientToGCSpectateUser = 9042;
+  k_EMsgClientToGCSpectateUserResponse = 9043;
+  k_EMsgClientToGCGetMatchHistory = 9044;
+  k_EMsgClientToGCGetMatchHistoryResponse = 9045;
+  k_EMsgClientToGCGetMatchDetails = 9046;
+  k_EMsgClientToGCGetMatchDetailsResponse = 9047;
+  k_EMsgClientToGCLimitedGrant = 9048;
+  k_EMsgClientToGCLimitedGrantResponse = 9049;
+  k_EMsgClientToGCLimitedGrantChoice = 9050;
+  k_EMsgClientToGCLimitedGrantChoiceResponse = 9051;
+  k_EMsgClientToGCLimitedGetFormat = 9052;
+  k_EMsgClientToGCLimitedGetFormatResponse = 9053;
+  k_EMsgClientToGCSubmitUserFeedback = 9067;
+  k_EMsgClientToGCSubmitUserFeedbackResponse = 9068;
+  k_EMsgClientToGCPostMatchSurveyResponse = 9069;
+  k_EMsgClientToGCMatchResultScreenAnalytics = 9070;
+  k_EMsgClientToGCGetQuestMapStatus = 9071;
+  k_EMsgClientToGCGetQuestMapStatusResponse = 9072;
+  k_EMsgClientToGCClaimQuestMapNode = 9073;
+  k_EMsgClientToGCClaimQuestMapNodeResponse = 9074;
+  k_EMsgClientToGCQuestDevCommand = 9075;
+  k_EMsgClientToGCGetAIVsAIMatchConfig = 9076;
+  k_EMsgClientToGCGetAIVsAIMatchConfigResponse = 9077;
+  k_EMsgClientToGCGetAIVsAIMatchComplete = 9078;
+  k_EMsgGCToClientGlobalPhantomLeagues = 9081;
+  k_EMsgGCToClientMatchmakingStatus = 9096;
+  k_EMsgClientToGCJoinGauntlet = 9097;
+  k_EMsgClientToGCJoinGauntletResponse = 9098;
+  k_EMsgClientToGCAbandonGauntlet = 9099;
+  k_EMsgClientToGCAbandonGauntletResponse = 9100;
+  k_EMsgGCToClientAvailableGauntlets = 9101;
+  k_EMsgClientToGCGetGauntletMatches = 9102;
+  k_EMsgClientToGCGetGauntletMatchesResponse = 9103;
+  k_EMsgClientToGCRegisterGauntletDeck = 9104;
+  k_EMsgClientToGCRegisterGauntletDeckResponse = 9105;
+  k_EMsgClientToGCAIGauntletResult = 9106;
+  k_EMsgClientToGCAIGauntletResultResponse = 9107;
+  k_EMsgClientToGCPrivateLobbyCreate = 9110;
+  k_EMsgClientToGCPrivateLobbyCreateResponse = 9111;
+  k_EMsgClientToGCPrivateLobbyLeave = 9112;
+  k_EMsgClientToGCPrivateLobbyLeaveResponse = 9113;
+  k_EMsgClientToGCPrivateLobbyJoin = 9114;
+  k_EMsgClientToGCPrivateLobbyJoinResponse = 9115;
+  k_EMsgClientToGCPrivateLobbyAction = 9116;
+  k_EMsgClientToGCPrivateLobbyActionResponse = 9117;
+  k_EMsgClientToGCPrivateLobbyStartMatch = 9118;
+  k_EMsgClientToGCPrivateLobbyStartMatchResponse = 9119;
+  k_EMsgClientToGCPrivateLobbyInviteUser = 9120;
+  k_EMsgClientToGCPrivateLobbyInviteUserResponse = 9121;
+  k_EMsgClientToGCPrivateLobbyChallenge = 9122;
+  k_EMsgClientToGCPrivateLobbyChallengeResponse = 9123;
+  k_EMsgGCToClientPrivateLobbyEvent = 9124;
+  k_EMsgClientToGCPrivateLobbyClientVersion = 9125;
+  k_EMsgGCToClientSDRTicket = 9126;
+  k_EMsgClientToGCReplacementSDRTicket = 9127;
+  k_EMsgClientToGCReplacementSDRTicketResponse = 9128;
+  k_EMsgClientToGCPrivateLobbyJoinChatRoom = 9129;
+  k_EMsgClientToGCPrivateLobbyJoinChatRoomResponse = 9130;
+  k_EMsgClientToGCMatchSignout = 9133;
+  k_EMsgClientToGCInitialGrantAck = 9134;
+  k_EMsgClientToGCRecycleCards = 9135;
+  k_EMsgClientToGCRecycleCardsResponse = 9136;
+  k_EMsgClientToGCSetPlayerBadge = 9137;
+  k_EMsgClientToGCGetProfileData = 9138;
+  k_EMsgClientToGCGetProfileDataResponse = 9139;
+  k_EMsgClientToGCSetDefaultCardback = 9140;
+  k_EMsgClientToGCTourneyGetInfo = 9500;
+  k_EMsgClientToGCTourneyGetInfoResponse = 9501;
+  k_EMsgClientToGCTourneyUnsubscribe = 9502;
+  k_EMsgGCToClientTourneyUpdated = 9503;
+  k_EMsgGCToClientTourneySeriesMatchReady = 9506;
+  k_EMsgGCToClientTourneySeriesMatchNotReady = 9507;
+  k_EMsgClientToGCCreateTourney = 9508;
+  k_EMsgClientToGCCreateTourneyResponse = 9509;
+  k_EMsgClientToGCTourneyAcceptInvite = 9512;
+  k_EMsgClientToGCTourneyAcceptInviteResponse = 9513;
+  k_EMsgClientToGCTourneyRejectInvite = 9514;
+  k_EMsgClientToGCTourneyRejectInviteResponse = 9515;
+  k_EMsgClientToGCTourneyRevokeInvite = 9516;
+  k_EMsgClientToGCTourneyRevokeInviteResponse = 9517;
+  k_EMsgClientToGCTourneyAdminSwitchStage = 9518;
+  k_EMsgClientToGCTourneyAdminSwitchStageResponse = 9519;
+  k_EMsgClientToGCTourneyAdminKick = 9520;
+  k_EMsgClientToGCTourneyAdminKickResponse = 9521;
+  k_EMsgClientToGCTourneyAdminGrantWin = 9522;
+  k_EMsgClientToGCTourneyAdminGrantWinResponse = 9523;
+  k_EMsgClientToGCTourneyAdminChangeRights = 9524;
+  k_EMsgClientToGCTourneyAdminChangeRightsResponse = 9525;
+  k_EMsgClientToGCTourneyRegisterDeck = 9526;
+  k_EMsgClientToGCTourneyRegisterDeckResponse = 9527;
+  k_EMsgClientToGCTourneyUserLeave = 9528;
+  k_EMsgClientToGCTourneyUserLeaveResponse = 9529;
+  k_EMsgClientToGCTourneyRegisterSharedDeck = 9530;
+  k_EMsgClientToGCTourneyRegisterSharedDeckResponse = 9531;
+  k_EMsgClientToGCTourneyGetRegisteredDecks = 9532;
+  k_EMsgClientToGCTourneyGetRegisteredDecksResponse = 9533;
+  k_EMsgClientToGCTourneyCreateOpenInvite = 9536;
+  k_EMsgClientToGCTourneyCreateOpenInviteResponse = 9537;
+  k_EMsgClientToGCTourneyRevokeOpenInvite = 9538;
+  k_EMsgClientToGCTourneyRevokeOpenInviteResponse = 9539;
+  k_EMsgClientToGCTourneyGetOpenInvites = 9540;
+  k_EMsgClientToGCTourneyGetOpenInvitesResponse = 9541;
+  k_EMsgClientToGCTourneyAdminSwitchPhaseStage = 9542;
+  k_EMsgClientToGCTourneyAdminSwitchPhaseStageResponse = 9543;
+  k_EMsgClientToGCTourneyGetOverview = 9544;
+  k_EMsgClientToGCTourneyGetOverviewResponse = 9545;
+  k_EMsgClientToGCTourneySetStatus = 9546;
+  k_EMsgClientToGCTourneySetStatusResponse = 9547;
+  k_EMsgClientToGCTourneyAddPhase = 9548;
+  k_EMsgClientToGCTourneyAddPhaseResponse = 9549;
+  k_EMsgClientToGCTourneyRemovePhase = 9550;
+  k_EMsgClientToGCTourneyRemovePhaseResponse = 9551;
+  k_EMsgClientToGCTourneySpectateMatch = 9552;
+  k_EMsgClientToGCTourneySpectateMatchResponse = 9553;
+  k_EMsgClientToGCTourneyInviteList = 9554;
+  k_EMsgClientToGCTourneyInviteListResponse = 9555;
+  k_EMsgClientToGCTourneyAdminSetSeedValues = 9556;
+  k_EMsgClientToGCTourneyAdminSetSeedValuesResponse = 9557;
+  k_EMsgClientToGCTourneyEditStageSwapPlayers = 9558;
+  k_EMsgClientToGCTourneyEditStageSwapPlayersResponse = 9559;
+  k_EMsgClientToGCTourneyGetLimitedReplay = 9560;
+  k_EMsgClientToGCTourneyGetLimitedReplayResponse = 9561;
+  k_EMsgClientToGCTourneyRejoinChatRoom = 9562;
+  k_EMsgClientToGCTourneyRejoinChatRoomResponse = 9563;
+  k_EMsgGCToClientTourneyMembersMatchmaking = 9564;
+  k_EMsgClientToGCTourneyPayEntryFee = 9565;
+  k_EMsgClientToGCTourneyPayEntryFeeResponse = 9566;
+  k_EMsgClientToGCTourneyPlayerAbandon = 9567;
+  k_EMsgClientToGCTourneyPlayerAbandonResponse = 9568;
+  k_EMsgClientToGCTourneyChangeValue = 9569;
+  k_EMsgClientToGCTourneyChangeValueResponse = 9570;
+  k_EMsgClientToGCTourneyJoinOpenTourney = 9571;
+  k_EMsgClientToGCTourneyJoinOpenTourneyResponse = 9572;
+  k_EMsgGCToClientEventInfo = 9580;
+  k_EMsgClientToGCRerollChallenge = 9581;
+  k_EMsgClientToGCRerollChallengeResponse = 9582;
+  k_EMsgClientToGCClaimChallengeReward = 9583;
+  k_EMsgClientToGCClaimChallengeRewardResponse = 9584;
+  k_EMsgClientToGCEventRequestInfo = 9585;
+  k_EMsgClientToGCEventRequestInfoSync = 9586;
+  k_EMsgClientToGCEventRequestInfoSyncResponse = 9587;
+  k_EMsgClientToGCEventEquipVirtualItem = 9588;
+  k_EMsgClientToGCEventEquipVirtualItemResponse = 9589;
+  k_EMsgClientToGCEventClaim = 9590;
+  k_EMsgClientToGCEventClaimResponse = 9591;
+  k_EMsgClientToGCDevEventOperation = 9592;
+  k_EMsgClientToGCDevEventOperationResponse = 9593;
+  k_EMsgClientToGCPerformAutoActions = 9594;
+  k_EMsgClientToGCPerformAutoActionsResponse = 9595;
+  k_EMsgClientToGCEventEquipVirtualItems = 9596;
+  k_EMsgClientToGCEventEquipVirtualItemsResponse = 9597;
+  k_EMsgClientToGCSetCardOwnership = 9598;
+  k_EMsgClientToGCAchievementDevCommand = 9600;
+  k_EMsgClientToGCAttemptClientManualClaim = 9610;
+  k_EMsgClientToGCAttemptClientManualClaimResponse = 9611;
+}
+
+enum EChatRoomType {
+  k_EChatRoomType_Invalid = 0;
+  k_EChatRoomType_Match = 1;
+  k_EChatRoomType_PublicRegion = 2;
+  k_EChatRoomType_Developer = 3;
+  k_EChatRoomType_Custom = 4;
+  k_EChatRoomType_PrivateLobby = 5;
+  k_EChatRoomType_Client_Tab = 20;
+  k_EChatRoomType_Client_Whisper = 21;
+}
+
+enum EChatMessageAdditionalData {
+  k_EChatMessageAdditionalData_None = 0;
+  k_EChatMessageAdditionalData_DiceRoll = 1;
+}
+
