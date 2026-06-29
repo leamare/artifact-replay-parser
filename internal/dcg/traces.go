@@ -14,7 +14,10 @@ package dcg
 // delta states where the type id isn't repeated) and propagate a confident
 // classification to every record sharing the same `type` id.
 
-import "sort"
+import (
+	"sort"
+	"sync"
+)
 
 // traceSig is a CTraceMsg field signature used for classification.
 type traceSig struct {
@@ -41,11 +44,57 @@ type Trace struct {
 // with classifications confirmed empirically but ambiguous by field shape
 // alone. The `type` id is the game's internal trace enum, stable across 2.0
 // replays. (16: field1==field5 object id, field2 lane; 108/110: paired blocks
-// whose field1 is an EScriptBlockType.)
+// whose field1 is an EScriptBlockType; 150: CardKilled {owner,is_creep,is_hero,
+// is_combat}.)
 var knownTraceTypeIDs2 = map[uint64]string{
 	16:  "UnitChangedCombatTarget",
 	108: "ScriptBlockBegin",
 	110: "ScriptBlockEnd",
+	150: "CardKilled",
+	// Identified by script-block context + distinctive field structure:
+	118: "ShoppingCardAppeared",  // SHOPPING_START; field1 is an EShoppingSlot
+	144: "PreviewDamageChanged",  // UPDATE_COMBAT_PREVIEW; {old,new,owner}
+	50:  "GainedAppliedEffectEx", // field4 = repeated {attr_token, value_diff}
+	52:  "LostAppliedEffectEx",   // ditto, with negative value_diffs
+}
+
+// learnedTypeIDs accumulates type-id -> name across every payload parsed in the
+// process, seeded from knownTraceTypeIDs2. Full states confidently classify a
+// type id by field shape; that mapping then resolves the same type id when it
+// recurs in delta states (which carry the id but an ambiguous/partial shape).
+var (
+	learnedTypeIDsMu sync.Mutex
+	learnedTypeIDs   = func() map[uint64]string {
+		m := map[uint64]string{}
+		for k, v := range knownTraceTypeIDs2 {
+			m[k] = v
+		}
+		return m
+	}()
+)
+
+func learnTypeID(id uint64, name string) {
+	if id == 0 || name == "" {
+		return
+	}
+	learnedTypeIDsMu.Lock()
+	if _, ok := learnedTypeIDs[id]; !ok {
+		learnedTypeIDs[id] = name
+	}
+	learnedTypeIDsMu.Unlock()
+}
+
+func lookupTypeID(id uint64) string {
+	learnedTypeIDsMu.Lock()
+	defer learnedTypeIDsMu.Unlock()
+	return learnedTypeIDs[id]
+}
+
+// setTraceTypeID records an id -> name mapping (used by LoadTraceTypes).
+func setTraceTypeID(id uint64, name string) {
+	learnedTypeIDsMu.Lock()
+	learnedTypeIDs[id] = name
+	learnedTypeIDsMu.Unlock()
 }
 
 // ExtractTraces pulls every trace record out of a board-state payload (full or
@@ -56,14 +105,12 @@ var knownTraceTypeIDs2 = map[uint64]string{
 // records), and the fields are then decoded under the resolved type.
 func ExtractTraces(payload []byte) []Trace {
 	type raw struct {
-		tr  Trace
-		msg []byte
+		tr         Trace
+		msg        []byte
+		shapeClass string // confident classification by field signature
+		valueClass string // heuristic classification by value pattern
 	}
 	var rows []raw
-	typeByID := map[uint64]string{}
-	for k, v := range knownTraceTypeIDs2 {
-		typeByID[k] = v
-	}
 
 	i := 0
 	for {
@@ -82,54 +129,91 @@ func ExtractTraces(payload []byte) []Trace {
 			i = j + 1
 			continue
 		}
-		msg := payload[no : no+int(ln)]
-		// In delta states the traceMsg is delta-encoded, not a clean
-		// length-delimited message; reading it as bytes over-reads. Only accept
-		// a candidate that parses as a well-formed protobuf so we never emit
-		// garbage. (Delta traces need the not-yet-implemented delta decoder.)
-		// Unparseable tokens are surfaced as NotParsed rather than dropped.
-		if !messageWellFormed(msg) {
-			rows = append(rows, raw{Trace{
-				Type:     "NotParsed",
-				ObjectID: nearestObjectID(payload, j),
-				TypeID:   nearestTypeID(payload, j),
-			}, nil})
-			i = j + 1
-			continue
-		}
 		tr := Trace{
 			ObjectID: nearestObjectID(payload, j),
 			TypeID:   nearestTypeID(payload, j),
 		}
-		if name := classifyShapeOnly(msg); name != "" {
-			tr.Type = name
-			if tr.TypeID != 0 {
-				typeByID[tr.TypeID] = name
-			}
-		} else if name := classifyByValue(msg); name != "" {
-			// Value-pattern fallback for delta traces (which carry no type id):
-			// not propagated to the type-id table since it's heuristic.
-			tr.Type = name
+		// A zero-length traceMsg is a valid fieldless trace (the proto has many
+		// empty CTraceMsg_* like DeathSyncPoint/ShopAction/CardMovedToGraveyard);
+		// it's identified solely by its type id, not NotParsed.
+		if ln == 0 {
+			rows = append(rows, raw{tr: tr, msg: []byte{}})
+			i = no
+			continue
 		}
-		rows = append(rows, raw{tr, msg})
+		// The declared length is a container that, in delta states, includes a
+		// trailer past the message; the message itself is the clean protobuf
+		// prefix. Parse that prefix (it equals the whole content in full states).
+		prefix, ok := parseTracePrefix(payload[no : no+int(ln)])
+		if !ok {
+			tr.Type = "NotParsed"
+			rows = append(rows, raw{tr: tr})
+			i = j + 1
+			continue
+		}
+		row := raw{tr: tr, msg: prefix}
+		row.shapeClass = classifyShapeOnly(prefix)
+		if row.shapeClass != "" {
+			// A confident shape match teaches the stable type-id its name, so the
+			// same type id resolves later in delta states that lack a full shape.
+			learnTypeID(tr.TypeID, row.shapeClass)
+		} else {
+			row.valueClass = classifyByValue(prefix)
+		}
+		rows = append(rows, row)
 		i = no + int(ln)
 	}
-	// Resolve type (shape, else type-id table) and decode fields under it.
+	// Resolve each trace, preferring the stable type-id table (authoritative,
+	// and correct even for delta-truncated shapes) over the per-message shape,
+	// then the value heuristic. Decode fields under the resolved type.
 	traces := make([]Trace, 0, len(rows))
 	for _, r := range rows {
-		if r.msg == nil { // NotParsed (delta-encoded) — surfaced as-is
+		if r.msg == nil { // NotParsed — surfaced as-is
 			traces = append(traces, r.tr)
 			continue
 		}
-		name := r.tr.Type
+		name := lookupTypeID(r.tr.TypeID)
 		if name == "" {
-			name = typeByID[r.tr.TypeID]
+			name = r.shapeClass
+		}
+		if name == "" {
+			name = r.valueClass
 		}
 		r.tr.Type = name
-		r.tr.Fields = decodeTraceFields(r.msg, name)
+		if len(r.msg) > 0 { // fieldless (empty) traces carry no fields
+			r.tr.Fields = decodeTraceFields(r.msg, name)
+		}
 		traces = append(traces, r.tr)
 	}
 	return traces
+}
+
+// parseTracePrefix returns the leading run of msg that forms a valid protobuf
+// trace: fields with plausible numbers (1..20) and consistent wire types. In
+// delta states this strips the trailing delta bytes; in full states it returns
+// the whole message. ok is false if not even one field parses.
+func parseTracePrefix(msg []byte) ([]byte, bool) {
+	r := newPBReader(msg)
+	seen := map[int]int{}
+	end := 0
+	for {
+		f, ok, err := r.next()
+		if err != nil || !ok {
+			break
+		}
+		if f.Num <= 0 || f.Num > 20 {
+			break
+		}
+		if w, dup := seen[f.Num]; dup && w != f.Wire {
+			break
+		}
+		seen[f.Num] = f.Wire
+		end = r.pos
+	}
+	if end == 0 {
+		return nil, false
+	}
+	return msg[:end], true
 }
 
 // IsParsed reports whether a trace held a well-formed message (i.e. is not a
@@ -256,31 +340,6 @@ func nearestTypeID(p []byte, pos int) uint64 {
 // tokenLE returns a token as its 4 little-endian wire bytes.
 func tokenLE(tok uint32) []byte {
 	return []byte{byte(tok), byte(tok >> 8), byte(tok >> 16), byte(tok >> 24)}
-}
-
-// messageWellFormed reports whether msg parses as a complete protobuf with no
-// trailing bytes and no field number appearing under conflicting wire types
-// (the tell-tale of an over-read into the next record).
-func messageWellFormed(msg []byte) bool {
-	if len(msg) == 0 {
-		return false
-	}
-	seen := map[int]int{}
-	r := newPBReader(msg)
-	for {
-		f, ok, err := r.next()
-		if err != nil {
-			return false
-		}
-		if !ok {
-			break
-		}
-		if w, dup := seen[f.Num]; dup && w != f.Wire {
-			return false
-		}
-		seen[f.Num] = f.Wire
-	}
-	return r.done()
 }
 
 // messageSignature returns the set of present field numbers and, for each, its

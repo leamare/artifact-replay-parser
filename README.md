@@ -50,6 +50,8 @@ the JSON, default on), `-cards <path>` (a card-name table, see below),
 The replay carries template card ids, not names. Supply a JSON table
 (`{"<id>":"<name>"}`) via `-cards <path>` or the `DCG_CARDS` env var to render
 card names in the traces, obtrace, and `$.objects`; otherwise ids are shown.
+Likewise `-tracetypes <path>` supplies a `{"<typeId>":"<CTraceMsg name>"}` table
+to name trace types whose stable internal id isn't in the built-in table yet.
 
 ## Container format
 
@@ -97,21 +99,22 @@ ScriptBlockBegin/End, …) and decodes their fields under the proto names, with
 and `script_type` rendered as its `EScriptBlockType` name. `ScriptBlockBegin`/
 `End` reconstruct the nested block structure (`CARD_PLAY_SCRIPT`,
 `UPDATE_OBJECT_ATTRIBUTES`, `BEGINNING_OF_SPELLCASTING`, …) that the obtrace
-shows. Delta (`is_diff`) states carry no `type` id, so their traces are
-classified by field signature plus a few high-confidence value patterns
-(e.g. `UnitChangedCombatTarget` when `new_combat_target == old_combat_target`).
-~84% of parseable trace records in the sample 2.0 replays classify; the rest are
-surfaced as `UnknownTrace` with their fields.
+shows. In `is_diff` states each `traceMsg` is a clean protobuf **prefix** followed by a
+delta trailer, so we parse the prefix (the leading run of valid fields) rather
+than requiring a fully well-formed message; zero-length `traceMsg`s are valid
+fieldless traces (DeathSyncPoint, ShopAction, …) identified by type id alone.
+The stable **type-id table is authoritative** (it stays correct for
+delta-truncated shapes); it's learned from full-state shapes and seeded with the
+ids that no shape can disambiguate, with `-tracetypes` to add more. ~81% of the
+~7k trace records in a sample 2.0 replay classify into 15+ types, with only a
+handful left `NotParsed`; the rest are `UnknownTrace` tagged with their type id.
 
 ## What's still open
 
-- **Delta (diff) trace bodies** — in `is_diff` board states each `traceMsg` is
-  delta-encoded against the prior state, so it can't be read as a standalone
-  message yet (those are skipped rather than emitted as garbage). Full/keyframe
-  states decode fully; cracking the delta opcodes unlocks the rest of the
-  per-action traces.
-- **Remaining ~16% of trace types** (`UnknownTrace`) — scalar-only signatures
-  ambiguous by shape with no `type` id (delta states); surfaced with their fields.
+- **Remaining `UnknownTrace`** — trace types whose stable internal type id isn't
+  mapped to a `CTraceMsg` name yet (their field shapes are ambiguous, so they
+  can't be learned from the data). They're surfaced with their `typeId`; supply
+  the mapping via `-tracetypes` as ids are identified.
 - **Unknown attribute/token names** — surfaced as `#<hash>`; grow the wordlist
   in `tokens.go` (or feed the game's attribute table) to name more.
 - **card-id → card name** mapping — supply a table via `-cards` (needs the

@@ -38,6 +38,7 @@ func main() {
 	outDir := flag.String("out", "", "batch mode: write <dir>/<name>.{json,trace.txt,info.json,packets.jsonl} per input file")
 	traces := flag.Bool("traces", true, "include the per-turn decoded trace log in JSON")
 	cards := flag.String("cards", "", "path to a card-name table (JSON {\"<id>\":\"<name>\"}) for naming cards")
+	traceTypes := flag.String("tracetypes", "", "path to a trace-type-id table (JSON {\"<typeId>\":\"<CTraceMsg name>\"})")
 	summary := flag.Bool("summary", false, "print a one-line summary per file to stderr")
 	flag.Parse()
 
@@ -55,6 +56,11 @@ func main() {
 	if cardsPath != "" {
 		if err := dcg.LoadCardNames(cardsPath); err != nil {
 			fmt.Fprintf(os.Stderr, "cards: %v\n", err)
+		}
+	}
+	if *traceTypes != "" {
+		if err := dcg.LoadTraceTypes(*traceTypes); err != nil {
+			fmt.Fprintf(os.Stderr, "tracetypes: %v\n", err)
 		}
 	}
 
