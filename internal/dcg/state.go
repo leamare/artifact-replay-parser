@@ -38,19 +38,20 @@ const (
 
 // Object is a decoded board object (a card/hero/creep/tower/improvement, etc.).
 type Object struct {
-	ObjectID      uint64  `json:"objectId"`
-	OwnerID       *uint32 `json:"ownerId,omitempty"`
-	TemplateCardID uint32 `json:"templateCardId"`
-	Attributes    []Attr  `json:"attributes,omitempty"`
-	Flags         map[int]uint64 `json:"flags,omitempty"`
-	RawCardHex    string  `json:"rawCardHex,omitempty"`
+	ObjectID       uint64         `json:"objectId"`
+	OwnerID        *uint32        `json:"ownerId,omitempty"`
+	TemplateCardID uint32         `json:"templateCardId"`
+	Attributes     []Attr         `json:"attributes,omitempty"`
+	Flags          map[int]uint64 `json:"flags,omitempty"`
+	RawCardHex     string         `json:"rawCardHex,omitempty"`
 }
 
-// Attr is one attribute: a symbol hash (hex) and its scalar value. The hash is
-// the game's attribute-name hash; resolving it to a name needs the attribute
-// table, which isn't bundled.
+// Attr is one decoded attribute. Name is the resolved field name (via the
+// murmur2 token table) when known; Hash is the hex token when not. Value is the
+// primary scalar value.
 type Attr struct {
-	Hash  string `json:"hash"`
+	Name  string `json:"name,omitempty"`
+	Hash  string `json:"hash,omitempty"`
 	Value uint64 `json:"value"`
 }
 
@@ -129,47 +130,96 @@ func decodeCard(id uint64, card []byte, includeRaw bool) (Object, bool) {
 	return obj, true
 }
 
-// decodeAttributes walks the symbol-keyed attribute map: repeated
-// [5-byte symbol hash][varint value]. The object-id symbol (which restates the
-// object id) is skipped. Decoding stops at the first sign of misalignment — a
-// symbol with an embedded zero run or an implausibly large value — because the
-// exact variable-length symbol/value grammar (especially in deltas) is not yet
-// fully reversed, and emitting drifted garbage is worse than stopping early.
+// objectIdToken is the field token whose value restates the object id; it is
+// dropped from the attribute list since the object id is surfaced separately.
+var objectIdToken = MakeStringToken("objectId")
+
+// decodeAttributes walks the symbol-keyed attribute map. Each field is
+// [4-byte name token][1-byte valtype < 0x20][value], where the value is a
+// varint (or, for valtype 0x1d, a length-delimited blob). Some fields carry
+// extra trailing varints (e.g. a position pair); we consume them up to the next
+// field start. Zero bytes between fields are padding. Decoding stops at the
+// first byte that can't begin a field, so the reliable leading fields
+// (objectId, ownerId, zoneId, …) are always recovered even if a later
+// multi-value field is ambiguous.
 func decodeAttributes(b []byte) []Attr {
 	var attrs []Attr
 	o := 0
-	for o+5 <= len(b) {
-		sym := b[o : o+5]
-		if driftedSymbol(sym) {
+	for o < len(b) {
+		if !isFieldStart(b, o) {
+			if b[o] == 0 { // padding / terminator
+				o++
+				continue
+			}
 			break
 		}
-		v, n := uvarint(b, o+5)
-		if n == 0 || v > 1<<48 {
-			break
+		tok := leU32(b[o:])
+		vt := b[o+4]
+		o += 5
+		var val uint64
+		if vt == valtypeBytes {
+			n, no := uvarint(b, o)
+			if no == 0 || no+int(n) > len(b) {
+				break
+			}
+			val = n // surface the blob length
+			o = no + int(n)
+		} else {
+			v, no := uvarint(b, o)
+			if no == 0 {
+				break
+			}
+			val = v
+			o = no
+			// Consume any extra value varints of a multi-value field.
+			for o < len(b) && !isFieldStart(b, o) && b[o] != 0 {
+				_, no2 := uvarint(b, o)
+				if no2 == 0 || no2 == o {
+					break
+				}
+				o = no2
+			}
 		}
-		if !bytesEqual(sym, symObjectID) { // object id is surfaced separately
-			attrs = append(attrs, Attr{Hash: hex.EncodeToString(sym), Value: v})
+		if tok == objectIdToken {
+			continue
 		}
-		o = n
+		a := Attr{Value: val}
+		if name := TokenName(tok); name != "" {
+			a.Name = name
+		} else {
+			a.Hash = hexToken(tok)
+		}
+		attrs = append(attrs, a)
 	}
 	return attrs
 }
 
-// driftedSymbol heuristically detects a misaligned read: real attribute symbol
-// hashes don't begin with a zero byte or contain a two-byte zero run.
-func driftedSymbol(sym []byte) bool {
-	if sym[0] == 0 {
-		return true
+// valtypeBytes is the valtype code for a length-delimited (sub-message) value.
+const valtypeBytes = 0x1d
+
+// isFieldStart reports whether a field header begins at b[o]: a non-zero 4-byte
+// token followed by a valtype byte in the valid range (< 0x20).
+func isFieldStart(b []byte, o int) bool {
+	if o+5 > len(b) {
+		return false
 	}
-	for i := 0; i+1 < len(sym); i++ {
-		if sym[i] == 0 && sym[i+1] == 0 {
-			return true
-		}
+	if b[o+4] >= 0x20 {
+		return false
 	}
-	return false
+	return b[o]|b[o+1]|b[o+2]|b[o+3] != 0
 }
 
-func bytesEqual(a, b []byte) bool { return string(a) == string(b) }
+func hexToken(tok uint32) string {
+	const hexd = "0123456789abcdef"
+	var out [9]byte
+	out[0] = '#'
+	for i := 0; i < 4; i++ {
+		bb := byte(tok >> (8 * i)) // little-endian, as seen on the wire
+		out[1+i*2] = hexd[bb>>4]
+		out[2+i*2] = hexd[bb&0xf]
+	}
+	return string(out[:])
+}
 
 // --- small helpers ---
 

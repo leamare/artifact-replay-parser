@@ -149,22 +149,43 @@ func connStatusName(v uint32) any {
 	return v
 }
 
-// CMsgGameBoardGameState envelope + decoded objects.
+// CMsgGameBoardGameState envelope + decoded trace events.
 func boardStateData(p []byte) map[string]any {
 	bs, _ := DecodeBoardState(p)
-	objs := ExtractObjects(bs.Payload, false)
+	traces := ExtractTraces(bs.Payload)
 	d := map[string]any{
 		"is_diff":             bs.IsDiff,
 		"is_last":             bs.IsLast,
 		"network_group":       bs.NetworkGroup,
 		"unpacked_state_size": bs.UnpackedSize,
 		"payload_len":         len(bs.Payload),
-		"object_count":        len(objs),
+		"trace_count":         len(traces),
 	}
-	if len(objs) > 0 {
-		d["objects"] = objectsToJSON(objs)
+	if len(traces) > 0 {
+		d["traces"] = tracesToJSON(traces)
 	}
 	return d
+}
+
+// tracesToJSON renders decoded traces, classified by CTraceMsg name where known.
+func tracesToJSON(traces []Trace) []map[string]any {
+	out := make([]map[string]any, 0, len(traces))
+	for _, t := range traces {
+		td := map[string]any{}
+		if t.Type != "" {
+			td["type"] = t.Type
+		} else {
+			td["typeId"] = t.TypeID
+		}
+		if t.ObjectID != 0 {
+			td["objectId"] = t.ObjectID
+		}
+		for k, v := range t.Fields {
+			td[k] = v
+		}
+		out = append(out, td)
+	}
+	return out
 }
 
 // objectsToJSON renders decoded objects with named fields.

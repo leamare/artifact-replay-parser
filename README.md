@@ -22,24 +22,34 @@ go build ./cmd/replay-parser
 ```
 
 Flags: `-json`, `-trace`, `-demoinfo`, `-packets` (each takes a path or `-` for
-stdout), `-out <dir>` (batch, writes all four), `-objects` (per-state object
-updates in the turn JSON), `-board` (running board snapshot per turn, default
-on), `-payloads` (raw card hex + base64), `-chat`, `-summary`.
+stdout), `-out <dir>` (batch, writes all four), `-traces` (per-turn trace log in
+the JSON, default on), `-cards <path>` (a card-name table, see below),
+`-summary`.
 
 ### Output files
 
 - **`.info.json`** — the demo-info summary: match id, version, game mode,
   player roster (user id + index, joined with persona names from chat),
   decklists if present, record-type counts.
-- **`.packets.jsonl`** — one JSON object per packet,
-  `{"message":"packet","type":<EDCGGameMessages name>,"data":{…}}`. Known
-  messages are decoded into **named fields with enum names** (Handoff,
-  ReplayActionMarker → action string, VenchatoquistEvent, ConnectionStatus,
-  BoardGameState → decoded objects); unknown types fall back to generic `fN`
-  fields. The primary tool for exploring message contents.
-- **`.json`** — turn-grouped state: Pregame → Initial Flop → per combat round,
-  each with its ordered events and the running board snapshot.
-- **`.trace.txt`** — `obtrace`-style phase blocks with the objects per state.
+- **`.packets.jsonl`** — one JSON object per line. Non-board-state records are
+  `{"message":"packet","type":<EDCGGameMessages name>,"data":{…}}` with **named
+  fields and enum names** (Handoff, ReplayActionMarker → action string,
+  VenchatoquistEvent with `gesture`, ConnectionStatus). Board states are
+  **exploded into their traces**: `{"message":"trace","type":<CTraceMsg name>,
+  "objectId":…,"data":{…}}`; parseable-but-unclassified traces are
+  `UnknownTrace`, delta-encoded ones `NotParsed`. The primary exploration tool.
+- **`.json`** — `$.handoff` (players with personas), `$.objects` (index of every
+  object id → `{cardId, cardName, owner}`), and `$.turns` (Pregame → Initial
+  Flop → per combat round, each with its markers and decoded `traces`).
+- **`.trace.txt`** — `obtrace`-style nested `EScriptBlockType` blocks
+  (`INITIAL_FLOP`, `FLOP_DEPLOYMENT_TO_COMBAT`, `COMBAT`, …) with the decoded
+  `CTraceMsg_*` leaf events, each annotated with the subject's card.
+
+### Card names
+
+The replay carries template card ids, not names. Supply a JSON table
+(`{"<id>":"<name>"}`) via `-cards <path>` or the `DCG_CARDS` env var to render
+card names in the traces, obtrace, and `$.objects`; otherwise ids are shown.
 
 ## Container format
 
@@ -62,34 +72,52 @@ being reverse-engineered. The parser recovers the keyframes and scavenges the
 GC messages it can confidently classify (venchatoquist chat/personas), so player
 identity and chat are recovered for 1.0 as well.
 
-## Board-state decoding
+## Board-state decoding (trace events)
 
-The `payload` inside a `CMsgGameBoardGameState` is an uncompressed Source 2
-schema-serialized snapshot, **the same serialization in both game versions**.
-Game objects appear as a symbol-keyed stream; each is
-`[symObjectID][object_id][symCard][len][card protobuf]`, present in both full
-snapshots and deltas. The card protobuf decodes to `{owner_id, template_card_id,
-attributes, …}`, so the parser reconstructs a running board (object id → latest
-card state) and snapshots it per turn. Attribute keys are the game's attribute
-name **hashes** (surfaced as hex) — resolving them to names needs the attribute
-table, which isn't bundled.
+The `payload` inside a `CMsgGameBoardGameState` is the uncompressed Source 2
+**"Trace Events" buffer** — a stream of records, each
+`type=<id>  objectId=<id>  traceMsg=<serialized CTraceMsg_*>`. Field and type
+names are keyed by Valve's `MakeStringToken` (murmur2, seed `0x31415926`) of the
+lowercased name, so the hashes are reversible from a dictionary
+(`internal/dcg/tokens.go`) — e.g. `0x7c48d532`=`objectId`, `0x3825eb34`=`zoneId`
+(location), `0x62ae3b3e`=`traceMsg`. Each field is `[4-byte token][valtype][value]`.
+
+Each `traceMsg` is a `CTraceMsg_*` event. There is no explicit type tag inside
+it; instead:
+
+- the record's **`type` id** is the game's stable internal trace enum, and
+- the message is identified by its **protobuf field signature**
+  (`internal/dcg/traces.go` + the generated `traces_data.go`), which is robust
+  across versions and works in delta states too.
+
+So the parser classifies traces (CardCreated, CardRevealed, DamageAttempted,
+UnitEnteringCombat, UnitChangedCombatTarget/Position, PreviewDeathResultChanged,
+ScriptBlockBegin/End, …) and decodes their fields under the proto names, with
+`card_instance_attributes` expanded to named attributes (`zoneId`, `ownerId`, …)
+and `script_type` rendered as its `EScriptBlockType` name. `ScriptBlockBegin`/
+`End` reconstruct the nested block structure (`CARD_PLAY_SCRIPT`,
+`UPDATE_OBJECT_ATTRIBUTES`, `BEGINNING_OF_SPELLCASTING`, …) that the obtrace
+shows. Delta (`is_diff`) states carry no `type` id, so their traces are
+classified by field signature plus a few high-confidence value patterns
+(e.g. `UnitChangedCombatTarget` when `new_combat_target == old_combat_target`).
+~84% of parseable trace records in the sample 2.0 replays classify; the rest are
+surfaced as `UnknownTrace` with their fields.
 
 ## What's still open
 
-- **1.0 per-action delta stream** — the length-delimited GC-message framing
-  (board-state deltas, markers, full chat/decks). The scavenger and the
-  generic packet dump are the tools to crack it; see `output/*.packets.jsonl`.
-- **Object location** (hand / lane / fountain / graveyard) — lives in the
-  per-object attribute map. The recurring hashes are surfaced (so they can be
-  correlated), but their names need the game's attribute table, and the
-  authoritative per-card zone/move events live in the payload's embedded
-  "Trace Events" buffer (CardCreated, CardMovedToHand, … — same set as a real
-  obtrace), which is the next decoding target.
-- **Attribute deltas** — full snapshots decode cleanly; in *diff* states the
-  attribute values are delta-encoded, so attribute decoding stops early
-  (drift-guarded) rather than emit garbage. Object identity, owner, and card id
-  are reliable in both.
-- **Attribute-hash → name** and **card-id → card name** mapping — external data.
+- **Delta (diff) trace bodies** — in `is_diff` board states each `traceMsg` is
+  delta-encoded against the prior state, so it can't be read as a standalone
+  message yet (those are skipped rather than emitted as garbage). Full/keyframe
+  states decode fully; cracking the delta opcodes unlocks the rest of the
+  per-action traces.
+- **Remaining ~16% of trace types** (`UnknownTrace`) — scalar-only signatures
+  ambiguous by shape with no `type` id (delta states); surfaced with their fields.
+- **Unknown attribute/token names** — surfaced as `#<hash>`; grow the wordlist
+  in `tokens.go` (or feed the game's attribute table) to name more.
+- **card-id → card name** mapping — supply a table via `-cards` (needs the
+  external card set).
+- **1.0 per-action delta stream** — the length-delimited GC-message framing;
+  the scavenger + packet dump are the tools (see `output/*.packets.jsonl`).
 
 ## Layout
 

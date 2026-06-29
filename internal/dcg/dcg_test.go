@@ -15,6 +15,74 @@ func replayDir(t *testing.T) string {
 	return dir
 }
 
+// TestStringTokens verifies the murmur2 MakeStringToken against known symbols
+// observed in the board-state serialization.
+func TestStringTokens(t *testing.T) {
+	cases := map[string]uint32{
+		"objectid": 0x7c48d532,
+		"ownerid":  0xa3c734e7,
+		"zoneid":   0x3825eb34,
+		"type":     0x1cf1719c,
+		"tracemsg": 0x62ae3b3e,
+	}
+	for name, want := range cases {
+		if got := MakeStringToken(name); got != want {
+			t.Errorf("MakeStringToken(%q) = %#08x, want %#08x", name, got, want)
+		}
+	}
+	// Dictionary resolves the location field.
+	if TokenName(MakeStringToken("zoneId")) != "zoneId" {
+		t.Errorf("zoneId token not resolved by dictionary")
+	}
+}
+
+// TestFoundryTraces checks the board-state trace decoding classifies the
+// distinctive gameplay traces and reconstructs the script-block structure.
+func TestFoundryTraces(t *testing.T) {
+	dir := replayDir(t)
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.dem"))
+	if len(matches) == 0 {
+		t.Skip("no .dem replays")
+	}
+	buf, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Parse(matches[0], buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	var total, classified int
+	for _, rec := range r.Records {
+		if rec.Type != MsgBoardGameState {
+			continue
+		}
+		bs, _ := DecodeBoardState(rec.Payload)
+		for _, tr := range ExtractTraces(bs.Payload) {
+			if !tr.IsParsed() { // skip delta-encoded NotParsed tokens
+				continue
+			}
+			total++
+			if tr.Type != "" {
+				classified++
+				seen[tr.Type]++
+			}
+		}
+	}
+	if total == 0 {
+		t.Fatal("no traces decoded")
+	}
+	if classified*100/total < 50 {
+		t.Errorf("trace classification too low: %d/%d", classified, total)
+	}
+	for _, want := range []string{"CardCreated", "ScriptBlockBegin", "ScriptBlockEnd", "DamageAttempted"} {
+		if seen[want] == 0 {
+			t.Errorf("expected to classify some %s traces", want)
+		}
+	}
+}
+
 // TestParseAll checks every sample replay parses without error and that the
 // version/header is recognized.
 func TestParseAll(t *testing.T) {
@@ -99,20 +167,29 @@ func TestFoundryStructure(t *testing.T) {
 		if states < 50 {
 			t.Errorf("%s: too few board states: %d", path, states)
 		}
-		game := BuildGame(filepath.Base(path), r, BuildOptions{IncludeBoard: true})
+		game := BuildGame(filepath.Base(path), r, BuildOptions{IncludeTraces: true})
 		if len(game.Turns) < 3 {
 			t.Errorf("%s: expected several turns, got %d", path, len(game.Turns))
 		}
-		// The final turn's board should contain decoded card objects.
-		last := game.Turns[len(game.Turns)-1]
+		// The object index should contain decoded real cards.
 		var realCards int
-		for _, o := range last.FinalBoard {
-			if o.TemplateCardID >= 10000 {
+		for _, o := range game.Objects {
+			if o.CardID >= 10000 {
 				realCards++
 			}
 		}
 		if realCards == 0 {
-			t.Errorf("%s: no real cards decoded in final board", path)
+			t.Errorf("%s: no real cards decoded in object index", path)
+		}
+		// Some turn should carry a decoded trace log.
+		var anyTraces bool
+		for _, tn := range game.Turns {
+			if len(tn.Traces) > 0 {
+				anyTraces = true
+			}
+		}
+		if !anyTraces {
+			t.Errorf("%s: no traces in any turn", path)
 		}
 		// The demo info should recover the player roster.
 		di := BuildDemoInfo(filepath.Base(path), r)

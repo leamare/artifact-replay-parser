@@ -66,6 +66,29 @@ func MsgName(t int) string {
 	}
 }
 
+// scriptBlockName maps EScriptBlockType (the obtrace block names). Returns the
+// raw value as any when unknown.
+func scriptBlockName(v uint64) any {
+	if n, ok := scriptBlockNames[v]; ok {
+		return n
+	}
+	return v
+}
+
+var scriptBlockNames = map[uint64]string{
+	0: "INVALID_SCRIPT_TYPE", 1: "CARD_PLAY_SCRIPT", 2: "GENERIC_TRIGGER_SCRIPT",
+	3: "SBE_UPDATE_SCRIPT", 4: "DEATH_CHECK_SCRIPT", 5: "COMBAT", 6: "CARD_DRAW_PHASE",
+	7: "END_OF_TURN_PHASE", 8: "COLLAPSE_LANE", 9: "CE_ADDED", 10: "CE_REMOVED",
+	11: "SURVIVED_DEATH", 12: "DEV_COMMAND", 13: "AFTER_COMBAT_PHASE",
+	14: "UPDATE_COMBAT_PREVIEW", 15: "UPDATE_OBJECT_ATTRIBUTES", 16: "TRIGGER_BLOCK",
+	17: "POST_SHOP_ITEM_PURCHASE", 18: "FLOP_DEPLOYMENT_TO_COMBAT",
+	19: "BEGINNING_OF_SPELLCASTING", 20: "PREGAME", 21: "RAPID_DEPLOYMENT",
+	23: "INITIAL_FLOP", 24: "CREEP_DEPLOYMENT", 25: "PREPARE_HEROES_FOR_LANE_ASSIGNMENT",
+	26: "SHOPPING_START", 27: "SHOPPING_UPDATE", 28: "SHOPPING_FINISHED",
+	29: "HERO_LANE_ASSIGNMENT", 30: "HERO_VS", 31: "PATHING_CARD_DEPLOYMENT",
+	32: "HACKED_EFFECT", 33: "EXPORT_CARD_SET_TO_IMAGES", 34: "GAME_OVER", 35: "TOKEN_DEPLOYED",
+}
+
 // ActionType is CMsgGameReplayActionMarker.EActionType.
 type ActionType int
 

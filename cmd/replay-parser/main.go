@@ -36,10 +36,8 @@ func main() {
 	demoInfoOut := flag.String("demoinfo", "", "write demo-info summary JSON to this path (\"-\" = stdout)")
 	packetsOut := flag.String("packets", "", "write per-packet JSONL (one record per line) to this path (\"-\" = stdout)")
 	outDir := flag.String("out", "", "batch mode: write <dir>/<name>.{json,trace.txt,info.json,packets.jsonl} per input file")
-	payloads := flag.Bool("payloads", false, "embed base64 + raw card hex of board-state payloads in JSON")
-	chat := flag.Bool("chat", false, "include venchatoquist (chat/gesture) events")
-	objects := flag.Bool("objects", false, "include per-state decoded object updates in JSON")
-	board := flag.Bool("board", true, "include the running board snapshot at the end of each turn")
+	traces := flag.Bool("traces", true, "include the per-turn decoded trace log in JSON")
+	cards := flag.String("cards", "", "path to a card-name table (JSON {\"<id>\":\"<name>\"}) for naming cards")
 	summary := flag.Bool("summary", false, "print a one-line summary per file to stderr")
 	flag.Parse()
 
@@ -50,17 +48,22 @@ func main() {
 		os.Exit(2)
 	}
 
+	cardsPath := *cards
+	if cardsPath == "" {
+		cardsPath = os.Getenv("DCG_CARDS")
+	}
+	if cardsPath != "" {
+		if err := dcg.LoadCardNames(cardsPath); err != nil {
+			fmt.Fprintf(os.Stderr, "cards: %v\n", err)
+		}
+	}
+
 	// Default to JSON on stdout when nothing else is requested and not batching.
 	if *jsonOut == "" && *traceOut == "" && *demoInfoOut == "" && *packetsOut == "" && *outDir == "" {
 		*jsonOut = "-"
 	}
 
-	opt := dcg.BuildOptions{
-		IncludePayloads: *payloads,
-		IncludeChat:     *chat,
-		IncludeObjects:  *objects,
-		IncludeBoard:    *board,
-	}
+	opt := dcg.BuildOptions{IncludeTraces: *traces}
 
 	exit := 0
 	for _, f := range files {

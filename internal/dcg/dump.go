@@ -10,9 +10,9 @@ import (
 	"sort"
 )
 
-// Packet is one record rendered for the JSONL dump.
+// Packet is one non-board-state record rendered for the JSONL dump.
 type Packet struct {
-	Message string         `json:"message"` // always "packet"
+	Message string         `json:"message"` // "packet"
 	Type    string         `json:"type"`    // EDCGGameMessages name
 	MsgID   int            `json:"msgId"`
 	Index   int            `json:"index"`
@@ -20,10 +20,42 @@ type Packet struct {
 	Data    map[string]any `json:"data"`
 }
 
-// WritePacketsJSONL writes one JSON object per record to w.
+// TraceLine is one trace event extracted from a board-state payload. Board
+// states are exploded into their constituent traces here (the board-state
+// record itself is not emitted), since the traces are the meaningful content.
+type TraceLine struct {
+	Message  string         `json:"message"` // "trace"
+	Type     string         `json:"type"`    // CTraceMsg name, "UnknownTrace", or "NotParsed"
+	Group    uint32         `json:"group,omitempty"`
+	IsDiff   bool           `json:"isDiff,omitempty"`
+	ObjectID uint64         `json:"objectId,omitempty"`
+	TypeID   uint64         `json:"typeId,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
+}
+
+// WritePacketsJSONL writes one JSON object per line: a "packet" per
+// non-board-state record, and a "trace" per trace inside each board state.
 func WritePacketsJSONL(w io.Writer, r *Reader) error {
 	enc := json.NewEncoder(w)
 	for i, rec := range r.Records {
+		if rec.Type == MsgBoardGameState {
+			bs, _ := DecodeBoardState(rec.Payload)
+			for _, tr := range ExtractTraces(bs.Payload) {
+				line := TraceLine{
+					Message:  "trace",
+					Type:     tr.DisplayType(),
+					Group:    bs.NetworkGroup,
+					IsDiff:   bs.IsDiff,
+					ObjectID: tr.ObjectID,
+					TypeID:   tr.TypeID,
+					Data:     tr.Fields,
+				}
+				if err := enc.Encode(line); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		p := Packet{
 			Message: "packet",
 			Type:    MsgName(rec.Type),
