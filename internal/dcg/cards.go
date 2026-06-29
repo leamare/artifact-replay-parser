@@ -51,6 +51,9 @@ func LoadTraceTypes(path string) error {
 		return err
 	}
 	for k, v := range raw {
+		if v == "" {
+			continue // template placeholder, not yet identified
+		}
 		if n, err := strconv.ParseUint(k, 10, 64); err == nil {
 			setTraceTypeID(n, v)
 		}

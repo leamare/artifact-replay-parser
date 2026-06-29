@@ -51,11 +51,13 @@ var knownTraceTypeIDs2 = map[uint64]string{
 	108: "ScriptBlockBegin",
 	110: "ScriptBlockEnd",
 	150: "CardKilled",
+	82:  "PreviewDeathResultChanged", // {old,new death result, owner, is_creep/hero/tower}
 	// Identified by script-block context + distinctive field structure:
 	118: "ShoppingCardAppeared",  // SHOPPING_START; field1 is an EShoppingSlot
 	144: "PreviewDamageChanged",  // UPDATE_COMBAT_PREVIEW; {old,new,owner}
 	50:  "GainedAppliedEffectEx", // field4 = repeated {attr_token, value_diff}
 	52:  "LostAppliedEffectEx",   // ditto, with negative value_diffs
+	156: "RandomShopItemCreated", // SHOPPING; {owner_id, template_card_id}
 }
 
 // learnedTypeIDs accumulates type-id -> name across every payload parsed in the

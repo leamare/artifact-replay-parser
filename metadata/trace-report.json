@@ -1,0 +1,557 @@
+{
+  "files": [
+    "2050565.dem",
+    "2050567.dem"
+  ],
+  "totalTraces": 16094,
+  "known": {
+    "118": "ShoppingCardAppeared",
+    "14": "UnitChangedCombatPosition",
+    "144": "PreviewDamageChanged",
+    "150": "CardKilled",
+    "156": "RandomShopItemCreated",
+    "16": "UnitChangedCombatTarget",
+    "22": "UnitEnteringCombat",
+    "28": "ImprovementEnteringPlay",
+    "50": "GainedAppliedEffectEx",
+    "52": "LostAppliedEffectEx",
+    "58": "CardDiscarded",
+    "60": "CardRevealed",
+    "62": "CardCreated",
+    "76": "DamageAttempted",
+    "82": "PreviewDeathResultChanged"
+  },
+  "unknown": {
+    "102": {
+      "count": 14,
+      "shapes": [
+        "f1"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT"
+      ],
+      "example": {
+        "f1": 576331368
+      }
+    },
+    "104": {
+      "count": 46,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT"
+      ],
+      "example": {
+        "f1": 1554262809,
+        "f2": 3
+      }
+    },
+    "112": {
+      "count": 15,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "SBE_UPDATE_SCRIPT"
+      ]
+    },
+    "114": {
+      "count": 35,
+      "shapes": [
+        "f1,f2,f3"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT"
+      ],
+      "example": {
+        "f1": 1,
+        "f2": 0,
+        "f3": 0
+      }
+    },
+    "122": {
+      "count": 14,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "SHOPPING_UPDATE"
+      ]
+    },
+    "126": {
+      "count": 371,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "SHOPPING_FINISHED",
+        "SHOPPING_START",
+        "SHOPPING_UPDATE"
+      ]
+    },
+    "128": {
+      "count": 14,
+      "shapes": [
+        "f1"
+      ],
+      "blocks": [
+        "SHOPPING_FINISHED"
+      ],
+      "example": {
+        "f1": 0
+      }
+    },
+    "130": {
+      "count": 14,
+      "shapes": [
+        "f1,f2,f3,f4"
+      ],
+      "blocks": [
+        "SHOPPING_UPDATE"
+      ],
+      "example": {
+        "f1": 1,
+        "f2": 13,
+        "f3": 1,
+        "f4": 10
+      }
+    },
+    "132": {
+      "count": 28,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "PREPARE_HEROES_FOR_LANE_ASSIGNMENT"
+      ]
+    },
+    "136": {
+      "count": 2,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "GAME_OVER"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 0
+      }
+    },
+    "138": {
+      "count": 6,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT"
+      ]
+    },
+    "140": {
+      "count": 41,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "GENERIC_TRIGGER_SCRIPT"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 1
+      }
+    },
+    "152": {
+      "count": 102,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "HERO_LANE_ASSIGNMENT"
+      ],
+      "example": {
+        "f1": 899311410,
+        "f2": 899311410
+      }
+    },
+    "2": {
+      "count": 20,
+      "shapes": [
+        "f1,f2,f3,f4,f5"
+      ],
+      "blocks": [
+        "DEATH_CHECK_SCRIPT"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 1,
+        "f3": 0,
+        "f4": 0,
+        "f5": 200671541
+      }
+    },
+    "24": {
+      "count": 25,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "DEATH_CHECK_SCRIPT"
+      ],
+      "example": {
+        "f1": 1,
+        "f2": 1
+      }
+    },
+    "34": {
+      "count": 11,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "DEATH_CHECK_SCRIPT",
+        "HERO_LANE_ASSIGNMENT"
+      ]
+    },
+    "4": {
+      "count": 1,
+      "shapes": [
+        "f1,f2,f3,f4,f5"
+      ],
+      "blocks": [
+        "DEATH_CHECK_SCRIPT"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 0,
+        "f3": 1,
+        "f4": [
+          1135349943,
+          1135349943,
+          771400223,
+          1664425731,
+          1664425731,
+          899311410,
+          1746551755,
+          1746551755
+        ],
+        "f5": [
+          1135349943,
+          771400223,
+          1664425731,
+          899311410,
+          1746551755
+        ]
+      }
+    },
+    "40": {
+      "count": 38,
+      "shapes": [
+        "f1,f2,f3"
+      ],
+      "blocks": [
+        "HERO_LANE_ASSIGNMENT"
+      ],
+      "example": {
+        "f1": 2,
+        "f2": 0,
+        "f3": 3
+      }
+    },
+    "48": {
+      "count": 54,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "DEATH_CHECK_SCRIPT"
+      ]
+    },
+    "54": {
+      "count": 2,
+      "shapes": [
+        "f1,f2,f3,f4"
+      ],
+      "blocks": [
+        "UPDATE_OBJECT_ATTRIBUTES"
+      ],
+      "example": {
+        "f1": 200671541,
+        "f2": 11000,
+        "f3": 11001,
+        "f4": {
+          "f1": 78063594,
+          "f2": 18446744073709551615
+        }
+      }
+    },
+    "56": {
+      "count": 111,
+      "shapes": [
+        "f1,f2,f3"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "UPDATE_OBJECT_ATTRIBUTES"
+      ],
+      "example": {
+        "f1": 3125721662,
+        "f2": 0,
+        "f3": 18446744073709551615
+      }
+    },
+    "64": {
+      "count": 31,
+      "shapes": [
+        "f1,f2,f3,f4"
+      ],
+      "blocks": [
+        "DEATH_CHECK_SCRIPT",
+        "SBE_UPDATE_SCRIPT",
+        "SHOPPING_UPDATE"
+      ],
+      "example": {
+        "f1": 1,
+        "f2": 0,
+        "f3": 5,
+        "f4": 33
+      }
+    },
+    "66": {
+      "count": 28,
+      "shapes": [
+        "f1,f2,f3,f4"
+      ],
+      "blocks": [
+        "SBE_UPDATE_SCRIPT",
+        "SHOPPING_UPDATE"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 1485920186,
+        "f3": 18446744073709551606,
+        "f4": 13
+      }
+    },
+    "68": {
+      "count": 2,
+      "shapes": [
+        "f1,f2,f3,f4,f5"
+      ],
+      "blocks": [
+        "SHOPPING_UPDATE"
+      ],
+      "example": {
+        "f1": 116816956,
+        "f2": 116816956,
+        "f3": 11073,
+        "f4": 0,
+        "f5": 3
+      }
+    },
+    "70": {
+      "count": 7,
+      "shapes": [
+        "f1,f2,f3"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "GENERIC_TRIGGER_SCRIPT"
+      ],
+      "example": {
+        "f1": 1485920186,
+        "f2": 4,
+        "f3": 10626
+      }
+    },
+    "74": {
+      "count": 64,
+      "shapes": [
+        "f1,f2,f3",
+        "f2,f3"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "GENERIC_TRIGGER_SCRIPT"
+      ],
+      "example": {
+        "f2": 11043,
+        "f3": 23
+      }
+    },
+    "78": {
+      "count": 102,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "HERO_LANE_ASSIGNMENT"
+      ]
+    },
+    "80": {
+      "count": 21,
+      "shapes": [
+        "f1"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "DEATH_CHECK_SCRIPT",
+        "FLOP_DEPLOYMENT_TO_COMBAT"
+      ],
+      "example": {
+        "f1": 200671541
+      }
+    },
+    "84": {
+      "count": 34,
+      "shapes": [
+        "f1,f2,f3,f4"
+      ],
+      "blocks": [
+        "UPDATE_OBJECT_ATTRIBUTES"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 1,
+        "f3": 24,
+        "f4": 8
+      }
+    },
+    "88": {
+      "count": 70,
+      "shapes": [
+        "f1,f2,f3,f4",
+        "f1,f2,f3,f4,f5"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "POST_SHOP_ITEM_PURCHASE",
+        "SHOPPING_UPDATE"
+      ],
+      "example": {
+        "f1": 0,
+        "f2": 0,
+        "f3": 1,
+        "f4": 1
+      }
+    },
+    "92": {
+      "count": 88,
+      "shapes": [
+        "f1,f2,f3"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT"
+      ],
+      "example": {
+        "f1": 918133774,
+        "f2": 0,
+        "f3": 1
+      }
+    },
+    "94": {
+      "count": 2,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT"
+      ],
+      "example": {
+        "f1": 1,
+        "f2": 1067368821
+      }
+    },
+    "96": {
+      "count": 5,
+      "shapes": [
+        "f1,f2"
+      ],
+      "blocks": [
+        "GENERIC_TRIGGER_SCRIPT"
+      ],
+      "example": {
+        "f1": 2,
+        "f2": 2
+      }
+    },
+    "98": {
+      "count": 111,
+      "shapes": [
+        "(empty)"
+      ],
+      "blocks": [
+        "CARD_PLAY_SCRIPT",
+        "GENERIC_TRIGGER_SCRIPT"
+      ]
+    }
+  },
+  "notParsed": 20,
+  "tracesWithoutId": [
+    "AchievementAchieved",
+    "AttributeValueChanged",
+    "CardBought",
+    "CardDrawn",
+    "CardDuplicated",
+    "CardEffectCalculation",
+    "CardMovedToDeck",
+    "CardMovedToDeployment",
+    "CardMovedToEffects",
+    "CardMovedToGraveyard",
+    "CardMovedToHand",
+    "CardMovedToSpellStack",
+    "CardPlayed",
+    "CardReturnedToFountain",
+    "CardReturnedToGuardDeck",
+    "CardSurvivedDeath",
+    "CardTemplateOperation",
+    "CasterCasting",
+    "ChargesChanged",
+    "ColorsPlayableChanged",
+    "ContinuousAppliedEffectChangedEx",
+    "DeathShieldUsed",
+    "DeathSyncPoint",
+    "DeploymentSkipped",
+    "EffectProcced",
+    "ExampleTraceMessage",
+    "FocusAttack",
+    "GoldEarned",
+    "GoldSpent",
+    "HeroVS",
+    "ImprovementDestroyed",
+    "InnerBlock",
+    "ItemEquipped",
+    "PathingCardChanged",
+    "PlayerActionsAvailable",
+    "PlayerPassed",
+    "PlayerResult",
+    "PrepareHeroForLaneAssignment",
+    "RandomlySelectedSecondaryTarget",
+    "ScriptBlockBegin",
+    "ScriptBlockEnd",
+    "ShopAction",
+    "ShopCardRemoved",
+    "ShopEnded",
+    "ShopHoldItemAvailable",
+    "ShoppingCardShuffled",
+    "StateBasedEffectsUpdateEnd",
+    "StateBasedEffectsUpdateStart",
+    "TargetSelected",
+    "TowerHealed",
+    "TowerKilled",
+    "TowerManaRestored",
+    "TowerManaSpent",
+    "TriggerTriggered",
+    "UnitCondemned",
+    "UnitHealed",
+    "UnitLeavingCombat",
+    "UnitLocked",
+    "UnitReadiedForDeploymentUponDeath",
+    "UnitTargeted",
+    "UnitUserTargeted"
+  ]
+}

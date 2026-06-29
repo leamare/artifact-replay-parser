@@ -53,6 +53,20 @@ card names in the traces, obtrace, and `$.objects`; otherwise ids are shown.
 Likewise `-tracetypes <path>` supplies a `{"<typeId>":"<CTraceMsg name>"}` table
 to name trace types whose stable internal id isn't in the built-in table yet.
 
+### Trace-type coverage report
+
+`-report <out.json>` (optionally `-tracetemplate <table.json>`), given one or
+more replays, writes a coverage report grouping trace-type ids into **known**
+(`id → CTraceMsg`), **unknown** (observed ids not yet named, with their field
+shape, enclosing script block, and a sample to identify them), and
+**tracesWithoutId** (proto `CTraceMsg_*` no id mapped to). `metadata/` holds a
+generated `trace-report.json` and an editable `tracetypes.json` (loadable via
+`-tracetypes`). Recording a console obtrace alongside a reference replay lets the
+unknown ids be matched to names and filled into `tracetypes.json`.
+
+The trace tables (`internal/dcg/traces_data.go`) are generated from the 2.0
+proto by `internal/dcg/gen_traces.py`.
+
 ## Container format
 
 Header (little-endian): **2.0** `u32 version(=7), u32 matchId`, 4 reserved bytes;
@@ -119,8 +133,12 @@ handful left `NotParsed`; the rest are `UnknownTrace` tagged with their type id.
   in `tokens.go` (or feed the game's attribute table) to name more.
 - **card-id → card name** mapping — supply a table via `-cards` (needs the
   external card set).
-- **1.0 per-action delta stream** — the length-delimited GC-message framing;
-  the scavenger + packet dump are the tools (see `output/*.packets.jsonl`).
+- **1.0 board-state serialization** — unlike 2.0 (which inlines the murmur
+  tokens per record), 1.0 declares each field token once in a schema table and
+  then encodes objects compactly by field-path/index (the Source2 entity-update
+  format). Locating the keyframe states works, but decoding their records into
+  traces needs a field-path decoder. The 1.0 per-action GC-message stream
+  framing is likewise still partial (chat/personas are scavenged).
 
 ## Layout
 

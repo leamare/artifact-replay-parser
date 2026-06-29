@@ -39,6 +39,8 @@ func main() {
 	traces := flag.Bool("traces", true, "include the per-turn decoded trace log in JSON")
 	cards := flag.String("cards", "", "path to a card-name table (JSON {\"<id>\":\"<name>\"}) for naming cards")
 	traceTypes := flag.String("tracetypes", "", "path to a trace-type-id table (JSON {\"<typeId>\":\"<CTraceMsg name>\"})")
+	reportOut := flag.String("report", "", "write a trace-type coverage report (JSON) aggregated over all inputs")
+	templateOut := flag.String("tracetemplate", "", "write a -tracetypes metadata template (JSON) to fill in")
 	summary := flag.Bool("summary", false, "print a one-line summary per file to stderr")
 	flag.Parse()
 
@@ -64,12 +66,15 @@ func main() {
 		}
 	}
 
+	reportMode := *reportOut != "" || *templateOut != ""
+
 	// Default to JSON on stdout when nothing else is requested and not batching.
-	if *jsonOut == "" && *traceOut == "" && *demoInfoOut == "" && *packetsOut == "" && *outDir == "" {
+	if *jsonOut == "" && *traceOut == "" && *demoInfoOut == "" && *packetsOut == "" && *outDir == "" && !reportMode {
 		*jsonOut = "-"
 	}
 
 	opt := dcg.BuildOptions{IncludeTraces: *traces}
+	reportReaders := map[string]*dcg.Reader{}
 
 	exit := 0
 	for _, f := range files {
@@ -80,6 +85,9 @@ func main() {
 			continue
 		}
 		r, err := dcg.Parse(f, buf)
+		if reportMode && r != nil {
+			reportReaders[filepath.Base(f)] = r
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: parse error: %v\n", f, err)
 			exit = 1
@@ -87,6 +95,10 @@ func main() {
 				continue
 			}
 		}
+		if reportMode {
+			continue // report is built once, after all files are parsed
+		}
+
 		game := dcg.BuildGame(filepath.Base(f), r, opt)
 
 		if *summary {
@@ -122,6 +134,22 @@ func main() {
 		if *packetsOut != "" {
 			if err := writePackets(*packetsOut, r); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", f, err)
+				exit = 1
+			}
+		}
+	}
+
+	if reportMode && len(reportReaders) > 0 {
+		rep := dcg.BuildTraceReport(reportReaders)
+		if *reportOut != "" {
+			if err := writeAny(*reportOut, rep); err != nil {
+				fmt.Fprintf(os.Stderr, "report: %v\n", err)
+				exit = 1
+			}
+		}
+		if *templateOut != "" {
+			if err := writeAny(*templateOut, rep.TraceTypeTemplate()); err != nil {
+				fmt.Fprintf(os.Stderr, "tracetemplate: %v\n", err)
 				exit = 1
 			}
 		}
