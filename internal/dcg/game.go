@@ -22,9 +22,14 @@ type Game struct {
 	ContainerDecoded bool                  `json:"containerDecoded"`
 	Note             string                `json:"note,omitempty"`
 	Handoff          *HandoffInfo          `json:"handoff,omitempty"`
+	Decks            []DeckInfo            `json:"decks,omitempty"`     // reconstructed card lists
+	DeckCodes        []string              `json:"deckCodes,omitempty"` // raw base64 deck codes
 	Objects          map[string]*ObjectRef `json:"objects,omitempty"`
-	RecordCounts     map[string]int        `json:"recordCounts"`
-	Turns            []*Turn               `json:"turns"`
+	// Zones lists the board zone/container names recovered from a 1.0 entity
+	// tree (Deck, Hand, Shop, Graveyard, …).
+	Zones        []string       `json:"zones,omitempty"`
+	RecordCounts map[string]int `json:"recordCounts"`
+	Turns        []*Turn        `json:"turns"`
 }
 
 // HandoffInfo summarizes the match and its players (roster joined with personas).
@@ -76,6 +81,7 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 	}
 
 	objects := map[uint64]*ObjectRef{}
+	var zoneSet []string
 	personas := map[uint32]string{}
 	var handoff *Handoff
 
@@ -103,6 +109,26 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 			cur.Markers = append(cur.Markers, ActionName(act))
 		case MsgBoardGameState:
 			bs, _ := DecodeBoardState(rec.Payload)
+			if r.Version == VersionClassic {
+				// 1.0 board states are a field-path entity tree; recover the
+				// object ids, inline cards, and zone names.
+				cobjs, zones := DecodeClassicState(bs.Payload)
+				for _, co := range cobjs {
+					ref := &ObjectRef{}
+					if co.Card != nil {
+						ref.CardID = co.Card.TemplateCardID
+						ref.CardName = CardName(co.Card.TemplateCardID)
+						if co.Card.OwnerID != nil {
+							o := *co.Card.OwnerID
+							ref.Owner = &o
+						}
+					}
+					if _, ok := objects[co.ObjectID]; !ok {
+						objects[co.ObjectID] = ref
+					}
+				}
+				zoneSet = appendUnique(zoneSet, zones)
+			}
 			for _, ob := range ExtractObjects(bs.Payload, false) {
 				ref := &ObjectRef{CardID: ob.TemplateCardID, CardName: CardName(ob.TemplateCardID)}
 				if ob.OwnerID != nil {
@@ -132,11 +158,33 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 	}
 
 	g.Handoff = buildHandoffInfo(handoff, personas)
+	g.Decks = reconstructDecks(r)
+	for _, c := range scavengeDeckCodes(r.buf) {
+		g.DeckCodes = append(g.DeckCodes, c.DeckData)
+	}
 	for id, ref := range objects {
 		g.Objects[utoa(id)] = ref
 	}
+	g.Zones = zoneSet
 	g.Turns = turns
 	return g
+}
+
+// appendUnique appends the items of add not already in base.
+func appendUnique(base, add []string) []string {
+	for _, s := range add {
+		found := false
+		for _, b := range base {
+			if b == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			base = append(base, s)
+		}
+	}
+	return base
 }
 
 // buildHandoffInfo joins the handoff roster with persona names from chat.
