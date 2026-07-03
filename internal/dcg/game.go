@@ -88,9 +88,15 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 	round := 0
 	cur := &Turn{Index: 0, Label: "Pregame"}
 	turns := []*Turn{cur}
-	newTurn := func(label string) {
+	type turnStart struct {
+		off  int
+		turn *Turn
+	}
+	var turnStarts []turnStart // file offset where each turn began
+	newTurn := func(label string, off int) {
 		t := &Turn{Index: len(turns), Label: label}
 		turns = append(turns, t)
+		turnStarts = append(turnStarts, turnStart{off, t})
 		cur = t
 	}
 
@@ -101,10 +107,10 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 			act := DecodeActionMarker(rec.Payload)
 			switch act {
 			case 13: // InitialFlopStart
-				newTurn("Initial Flop")
+				newTurn("Initial Flop", rec.Offset)
 			case 8: // LaneStart -> new combat round
 				round++
-				newTurn(roundLabel(round))
+				newTurn(roundLabel(round), rec.Offset)
 			}
 			cur.Markers = append(cur.Markers, ActionName(act))
 		case MsgBoardGameState:
@@ -138,7 +144,7 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 				objects[ob.ObjectID] = ref
 			}
 			cur.BoardStates++
-			if includeTraces {
+			if includeTraces && r.Version != VersionClassic {
 				for _, tr := range ExtractTraces(bs.Payload) {
 					if !tr.IsParsed() {
 						continue
@@ -154,6 +160,23 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 			if c := DecodeVenchat(rec.Payload); c.UserID != 0 && c.PersonaName != "" {
 				personas[c.UserID] = c.PersonaName
 			}
+		}
+	}
+
+	// 1.0: traces come from a whole-file scan (they largely live in the
+	// not-yet-decoded delta gaps between recovered records); assign each to a
+	// turn by its file position relative to the turn-start offsets.
+	if includeTraces && r.Version == VersionClassic {
+		for _, pt := range ExtractClassicFileTraces(r.buf) {
+			t := turns[0]
+			for _, ts := range turnStarts {
+				if pt.Offset >= ts.off {
+					t = ts.turn
+				}
+			}
+			tr := pt.Trace
+			tr.Type = tr.DisplayType()
+			t.Traces = append(t.Traces, tr)
 		}
 	}
 

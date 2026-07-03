@@ -58,6 +58,7 @@ type Reader struct {
 	Version          Version
 	MatchID          uint32
 	CRC              uint32 // 1.0 only
+	ContainerVersion uint32 // the header version word (7 in all samples)
 	Records          []Record
 	ContainerDecoded bool   // false for 1.0 until the bit-stream is reversed
 	Note             string // human-readable status (e.g. why records are empty)
@@ -90,10 +91,12 @@ func Parse(name string, buf []byte) (*Reader, error) {
 	case v0 == 7:
 		// 2.0: version, matchId, reserved...
 		r.Version = VersionFoundry
+		r.ContainerVersion = v0
 		r.MatchID = v1
 	case v1 == 7:
 		// 1.0: crc, version, matchId
 		r.Version = VersionClassic
+		r.ContainerVersion = v1
 		r.CRC = v0
 		r.MatchID = binary.LittleEndian.Uint32(buf[8:])
 	default:

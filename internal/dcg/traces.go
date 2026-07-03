@@ -58,6 +58,46 @@ var knownTraceTypeIDs2 = map[uint64]string{
 	50:  "GainedAppliedEffectEx", // field4 = repeated {attr_token, value_diff}
 	52:  "LostAppliedEffectEx",   // ditto, with negative value_diffs
 	156: "RandomShopItemCreated", // SHOPPING; {owner_id, template_card_id}
+
+	// Cross-identified from proto field semantics + enclosing block + the
+	// reference console logs (test-replays/logs-20). Strong matches:
+	54:  "ContinuousAppliedEffectChangedEx", // trio with 50/52; f4 = properties
+	56:  "AttributeValueChanged",            // f1 = murmur attr token (huge), f2 = value
+	24:  "UnitLeavingCombat",                // pairs with 22=UnitEnteringCombat; {lane, zone}
+	40:  "CardMovedToDeployment",            // HERO_LANE_ASSIGNMENT; {lane, order, desired_pos=-1}
+	64:  "GoldEarned",                       // {owner, source_obj, amount, available}
+	66:  "GoldSpent",                        // pair with 64; negative amount
+	70:  "UnitHealed",                       // {source_obj, heal, source_effect_card}
+	74:  "TriggerTriggered",                 // {source_obj, source_effect_card, event_name}
+	84:  "ColorsPlayableChanged",            // UPDATE_OBJECT_ATTRIBUTES; two color bitmasks
+	88:  "CardDrawn",                        // {owner, turn, order, source, is_overdrawn}
+	92:  "UnitTargeted",                     // {source_obj, target_group, group_number}
+	94:  "UnitLocked",                       // {turns, source_obj}
+	96:  "TowerManaRestored",                // {restored, attempted}
+	104: "TowerManaSpent",                   // CARD_PLAY; {source_obj, mana}
+	122: "ShopAction",                       // SHOPPING_UPDATE; empty
+	126: "ShopCardRemoved",                  // SHOPPING; empty, frequent
+	128: "ShopEnded",                        // SHOPPING_FINISHED; {owner}
+	130: "CardBought",                       // {turn, order, is_drawn_shop_item, remaining}
+	136: "PlayerResult",                     // GAME_OVER; {owner, has_won}
+	152: "CasterCasting",                    // {caster_object_id, card_object_id}
+	// Plausible (shape/context fit, weaker corroboration):
+	48:  "CardMovedToGraveyard",         // CARD_PLAY/DEATH_CHECK; empty
+	78:  "UnitUserTargeted",             // CARD_PLAY/HERO_LANE_ASSIGNMENT; empty
+	80:  "EffectProcced",                // {source_object_id}
+	98:  "CardPlayed",                   // CARD_PLAY/GENERIC_TRIGGER; empty
+	102: "UnitCondemned",                // {source_object_id}
+	114: "PlayerPassed",                 // {player, pass_to_combat, had_actions}
+	132: "PrepareHeroForLaneAssignment", // PREPARE_HEROES block
+	140: "ChargesChanged",               // GENERIC_TRIGGER; {delta, new}
+	68:  "CardDuplicated",               // {source_obj, copied_obj, effect_card, lane, zone}
+	112: "StateBasedEffectsUpdateStart", // SBE block; empty
+	// The internal trace enum maps n:1 onto the CTraceMsg payloads — 2 and 150
+	// are both CardKilled (non-combat deaths with damageContributors vs combat
+	// deaths).
+	2:   "CardKilled",
+	4:   "TowerKilled",           // {owner, is_combat, is_defeat_for_owner, damageContributors}
+	138: "CardMovedToSpellStack", // CARD_PLAY; empty (spell entering the stack)
 }
 
 // learnedTypeIDs accumulates type-id -> name across every payload parsed in the
@@ -318,8 +358,10 @@ func nearestObjectID(p []byte, pos int) uint64 {
 	return v
 }
 
-// nearestTypeID finds the `type` id value preceding the traceMsg token (only
-// present in full states; 0 if absent, e.g. in deltas).
+// nearestTypeID finds the trace-type id preceding the traceMsg token. Full
+// states carry it behind the `type` token; delta states drop the token but
+// keep the raw [0x02 valtype][typeid varint] immediately before the objectId
+// token, so that is the fallback.
 func nearestTypeID(p []byte, pos int) uint64 {
 	tok := tokenLE(traceTokenType)
 	start := pos - 32
@@ -332,12 +374,46 @@ func nearestTypeID(p []byte, pos int) uint64 {
 			last = o
 		}
 	}
-	if last < 0 {
+	if last >= 0 {
+		v, _ := uvarint(p, last+5)
+		return v
+	}
+	// Delta fallback: locate the objectId token of this record, then read the
+	// varint that ends right before it (1- or 2-byte), validating the range.
+	oidTok := tokenLE(MakeStringToken("objectId"))
+	oid := -1
+	for o := start; o < pos; o++ {
+		if o+5 <= len(p) && string(p[o:o+4]) == string(oidTok) {
+			oid = o
+		}
+	}
+	if oid < 1 {
 		return 0
 	}
-	v, _ := uvarint(p, last+5)
-	return v
+	return typeIDBefore(p, oid)
 }
+
+// typeIDBefore reads the trace-type id varint that ends at position end
+// (exclusive). Type ids are small even numbers, encoded as one byte (< 0x80)
+// or two bytes (0x80.. 0x01 for 128..155).
+func typeIDBefore(p []byte, end int) uint64 {
+	if end >= 2 && p[end-1] < 0x80 && p[end-1] >= 2 {
+		v := uint64(p[end-1])
+		if plausibleTypeID(v) {
+			return v
+		}
+	}
+	if end >= 3 && p[end-1] == 0x01 && p[end-2] >= 0x80 {
+		v := uint64(p[end-2]&0x7f) | 1<<7
+		if plausibleTypeID(v) {
+			return v
+		}
+	}
+	return 0
+}
+
+// plausibleTypeID bounds the game's trace-type enum: small even ids.
+func plausibleTypeID(v uint64) bool { return v >= 2 && v <= 200 && v%2 == 0 }
 
 // tokenLE returns a token as its 4 little-endian wire bytes.
 func tokenLE(tok uint32) []byte {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
+	"time"
 )
 
 // Packet is one non-board-state record rendered for the JSONL dump.
@@ -35,12 +36,17 @@ type TraceLine struct {
 
 // WritePacketsJSONL writes one JSON object per line: a "packet" per
 // non-board-state record, and a "trace" per trace inside each board state.
+// For 1.0, traces come from the whole-file scan (delta gaps included) and are
+// interleaved with the packets by file offset.
 func WritePacketsJSONL(w io.Writer, r *Reader) error {
 	enc := json.NewEncoder(w)
+	if r.Version == VersionClassic {
+		return writeClassicPacketsJSONL(enc, r)
+	}
 	for i, rec := range r.Records {
 		if rec.Type == MsgBoardGameState {
 			bs, _ := DecodeBoardState(rec.Payload)
-			for _, tr := range ExtractTraces(bs.Payload) {
+			for _, tr := range TracesFor(r.Version, bs.Payload) {
 				line := TraceLine{
 					Message:  "trace",
 					Type:     tr.DisplayType(),
@@ -74,29 +80,91 @@ func WritePacketsJSONL(w io.Writer, r *Reader) error {
 	return nil
 }
 
+// writeClassicPacketsJSONL interleaves 1.0 records and whole-file traces by
+// their byte offsets, so the JSONL preserves game order.
+func writeClassicPacketsJSONL(enc *json.Encoder, r *Reader) error {
+	traces := ExtractClassicFileTraces(r.buf)
+	ti := 0
+	emitTrace := func(pt PosTrace) error {
+		return enc.Encode(TraceLine{
+			Message:  "trace",
+			Type:     pt.Trace.DisplayType(),
+			ObjectID: pt.Trace.ObjectID,
+			TypeID:   pt.Trace.TypeID,
+			Data:     pt.Trace.Fields,
+		})
+	}
+	for i, rec := range r.Records {
+		for ti < len(traces) && traces[ti].Offset < rec.Offset {
+			if err := emitTrace(traces[ti]); err != nil {
+				return err
+			}
+			ti++
+		}
+		if rec.Type == MsgBoardGameState {
+			continue // its traces are covered by the whole-file scan
+		}
+		p := Packet{
+			Message: "packet",
+			Type:    MsgName(rec.Type),
+			MsgID:   rec.Type,
+			Index:   i,
+			Offset:  rec.Offset,
+			Data:    TypedPacketData(rec),
+		}
+		if rec.Scavenged {
+			p.Data["_scavenged"] = true
+		}
+		if err := enc.Encode(p); err != nil {
+			return err
+		}
+	}
+	for ; ti < len(traces); ti++ {
+		if err := emitTrace(traces[ti]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DemoInfo is the high-level summary (the CDemoFileInfo / CGameInfo analogue).
+// Note: these replays are GC message logs, not Source 2 DEM containers — there
+// is no CDemoFileHeader, and no match date, server name, network protocol or
+// end time anywhere in the file (verified by token and timestamp scans). The
+// closest header data is the container version word and (1.0) checksum.
 type DemoInfo struct {
-	File         string         `json:"file"`
-	Version      string         `json:"version"`
-	MatchID      uint32         `json:"matchId"`
-	GameMode     *uint32        `json:"gameMode,omitempty"`
-	PlayerCount  *uint32        `json:"playerCount,omitempty"`
-	IsSpectator  *bool          `json:"isSpectator,omitempty"`
-	Players      []PlayerInfo   `json:"players,omitempty"`
-	Decks        []DeckInfo     `json:"decks,omitempty"`     // reconstructed card lists
-	DeckCodes    []string       `json:"deckCodes,omitempty"` // raw base64 deck codes
-	RecordCounts map[string]int `json:"recordCounts"`
-	RecordTotal  int            `json:"recordTotal"`
-	Note         string         `json:"note,omitempty"`
+	File             string         `json:"file"`
+	Version          string         `json:"version"`
+	ContainerVersion uint32         `json:"containerVersion"`
+	CRC              uint32         `json:"crc,omitempty"` // 1.0 header checksum
+	MatchID          uint32         `json:"matchId"`
+	GameMode         *uint32        `json:"gameMode,omitempty"`
+	PlayerCount      *uint32        `json:"playerCount,omitempty"`
+	IsSpectator      *bool          `json:"isSpectator,omitempty"`
+	MatchTime        uint32         `json:"matchTime,omitempty"` // unix, from chat timestamps
+	MatchDate        string         `json:"matchDate,omitempty"` // ISO form of MatchTime
+	Players          []PlayerInfo   `json:"players,omitempty"`
+	Decks            []DeckInfo     `json:"decks,omitempty"`            // reconstructed card lists
+	DeckCodes        []string       `json:"deckCodes,omitempty"`        // full deck codes (repaired)
+	PartialDeckCodes []string       `json:"partialDeckCodes,omitempty"` // current-deck codes (no heroes post-flop)
+	GameData         *GameData      `json:"gameData,omitempty"`         // match/game mode, gauntlet
+	RecordCounts     map[string]int `json:"recordCounts"`
+	RecordTotal      int            `json:"recordTotal"`
+	Note             string         `json:"note,omitempty"`
 }
 
 // PlayerInfo is a participant: the Handoff roster joined with the persona name
-// seen in chat/venchatoquist records.
+// seen in chat/venchatoquist records. Bot marks AI participants (their roster
+// user id is a placeholder, not a real account id).
 type PlayerInfo struct {
 	UserID      uint32 `json:"userId"`
 	PlayerIndex uint32 `json:"playerIndex"`
 	Persona     string `json:"persona,omitempty"`
+	Bot         bool   `json:"bot,omitempty"`
 }
+
+// botUserIDMax bounds placeholder user ids assigned to AI players.
+const botUserIDMax = 1000
 
 // DeckInfo is a player's deck, recovered as a base64 deck code when present and
 // reconstructed as a card list from the card-create events.
@@ -116,14 +184,16 @@ type DeckCard struct {
 // BuildDemoInfo assembles the summary from a parsed container.
 func BuildDemoInfo(file string, r *Reader) *DemoInfo {
 	di := &DemoInfo{
-		File:         file,
-		Version:      r.Version.String(),
-		MatchID:      r.MatchID,
-		RecordCounts: map[string]int{},
-		RecordTotal:  len(r.Records),
-		Note:         r.Note,
+		File:             file,
+		Version:          r.Version.String(),
+		ContainerVersion: r.ContainerVersion,
+		CRC:              r.CRC,
+		MatchID:          r.MatchID,
+		RecordCounts:     map[string]int{},
+		RecordTotal:      len(r.Records),
+		Note:             r.Note,
 	}
-	personas := map[uint32]string{}
+	personas := ScavengePersonas(r.buf)
 	roster := map[uint32]uint32{} // user_id -> player_index
 	for _, rec := range r.Records {
 		di.RecordCounts[MsgName(rec.Type)]++
@@ -140,30 +210,95 @@ func BuildDemoInfo(file string, r *Reader) *DemoInfo {
 			if c.UserID != 0 && c.PersonaName != "" {
 				personas[c.UserID] = c.PersonaName
 			}
+			if ts := venchatTimestamp(uint64(c.LineID)); ts != 0 && (di.MatchTime == 0 || ts < di.MatchTime) {
+				di.MatchTime = ts
+			}
 		case MsgInitialGameState:
 			di.Decks = append(di.Decks, decodeDecks(rec.Payload)...)
 		}
 	}
-	// Decks: the reconstructed card lists (reliable) are the primary deck data;
-	// the raw base64 deck codes are surfaced separately as supplementary.
+	// Chat lines carry wall-clock stamps in the 1.0 delta stream too; scan for
+	// the earliest one as the match time.
+	if ts := scanChatTimestamps(r.buf); ts != 0 && (di.MatchTime == 0 || ts < di.MatchTime) {
+		di.MatchTime = ts
+	}
+	if di.MatchTime != 0 {
+		di.MatchDate = time.Unix(int64(di.MatchTime), 0).UTC().Format("2006-01-02 15:04:05 UTC")
+	}
+	// Decks: the reconstructed card lists (reliable) are the primary deck data.
+	// Deck codes come from the decklist fields of the game-data entity (token
+	// scan across board states), with the raw byte scavenge as a fallback for
+	// codes the entity parse misses.
 	if len(di.Decks) == 0 {
 		di.Decks = reconstructDecks(r)
 	}
-	for _, c := range scavengeDeckCodes(r.buf) {
-		di.DeckCodes = append(di.DeckCodes, c.DeckData)
+	seenCode := map[string]bool{}
+	add := func(dst *[]string, c string) {
+		if c != "" && !seenCode[c] {
+			seenCode[c] = true
+			*dst = append(*dst, c)
+		}
+	}
+	for _, rec := range r.Records {
+		if rec.Type != MsgBoardGameState {
+			continue
+		}
+		bs, _ := DecodeBoardState(rec.Payload)
+		current, full := ExtractDeckCodes(bs.Payload)
+		for _, c := range full {
+			add(&di.DeckCodes, c)
+		}
+		for _, c := range current {
+			add(&di.PartialDeckCodes, c)
+		}
+		if di.GameData == nil {
+			if gd := ExtractGameData(bs.Payload); gd.MatchMode != nil || gd.GameMode != nil || gd.GauntletID != nil {
+				di.GameData = &gd
+			}
+		}
+	}
+	if r.Version == VersionClassic {
+		// The 1.0 delta stream holds codes outside decodable board states; the
+		// full/current distinction isn't recoverable there, so keep them all as
+		// deck codes.
+		for _, c := range scavengeDeckCodes(r.buf) {
+			add(&di.DeckCodes, RepairDeckCode(c.DeckData))
+		}
 	}
 	seen := map[uint32]bool{}
 	for uid, idx := range roster {
-		di.Players = append(di.Players, PlayerInfo{UserID: uid, PlayerIndex: idx, Persona: personas[uid]})
+		di.Players = append(di.Players, PlayerInfo{
+			UserID: uid, PlayerIndex: idx, Persona: personas[uid],
+			Bot: uid < botUserIDMax,
+		})
 		seen[uid] = true
 	}
-	for uid, name := range personas { // personas with no roster entry (spectators)
+	for uid, name := range personas { // personas with no roster entry (1.0 has no roster)
 		if !seen[uid] {
 			di.Players = append(di.Players, PlayerInfo{UserID: uid, Persona: name})
 		}
 	}
 	sort.Slice(di.Players, func(i, j int) bool { return di.Players[i].PlayerIndex < di.Players[j].PlayerIndex })
 	return di
+}
+
+// scanChatTimestamps finds the earliest chat wall-clock stamp in the raw
+// stream: venchat field 6 (tag 0x30) followed by a 5-byte varint unix time.
+func scanChatTimestamps(buf []byte) uint32 {
+	var best uint32
+	for i := 0; i+6 < len(buf); i++ {
+		if buf[i] != 0x30 {
+			continue
+		}
+		v, n := uvarint(buf, i+1)
+		if n-i-1 != 5 {
+			continue
+		}
+		if ts := venchatTimestamp(v); ts != 0 && (best == 0 || ts < best) {
+			best = ts
+		}
+	}
+	return best
 }
 
 // scavengeDeckCodes recovers Artifact deck codes from a 1.0 file. They are long
@@ -185,10 +320,11 @@ func scavengeDeckCodes(buf []byte) []DeckInfo {
 			j++
 		}
 		// Deck codes start with a version prefix ("ADC" in 1.0, "RTFACT" in 2.0
-		// Foundry); this filters out base64-looking fragments the serialization
-		// splits out.
-		if j-i >= minDeckLen && hasDeckPrefix(buf[i:j]) {
-			code := string(buf[i:j])
+		// Foundry). The delta serializer can elide the constant prefix, leaving
+		// a '=='-padded tail; accept those too (RepairDeckCode reconstructs).
+		run := buf[i:j]
+		if j-i >= minDeckLen && (hasDeckPrefix(run) || (run[len(run)-1] == '=' && j-i >= 50)) {
+			code := string(run)
 			if !seen[code] {
 				seen[code] = true
 				decks = append(decks, DeckInfo{OwnerID: uint32(len(decks)), DeckData: code})
@@ -229,12 +365,22 @@ const minDeckCardID = 10000
 func reconstructDecks(r *Reader) []DeckInfo {
 	// owner -> template -> set of object ids (distinct instances)
 	byOwner := map[uint32]map[uint32]map[uint64]bool{}
-	for _, rec := range r.Records {
-		if rec.Type != MsgBoardGameState {
-			continue
+	var all []Trace
+	if r.Version == VersionClassic {
+		for _, pt := range ExtractClassicFileTraces(r.buf) {
+			all = append(all, pt.Trace)
 		}
-		bs, _ := DecodeBoardState(rec.Payload)
-		for _, tr := range ExtractTraces(bs.Payload) {
+	} else {
+		for _, rec := range r.Records {
+			if rec.Type != MsgBoardGameState {
+				continue
+			}
+			bs, _ := DecodeBoardState(rec.Payload)
+			all = append(all, ExtractTraces(bs.Payload)...)
+		}
+	}
+	{
+		for _, tr := range all {
 			if tr.Type != "CardCreated" && tr.Type != "CardRevealed" {
 				continue
 			}

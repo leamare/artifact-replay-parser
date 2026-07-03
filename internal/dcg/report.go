@@ -67,7 +67,7 @@ func BuildTraceReport(readers map[string]*Reader) *TraceReport {
 				continue
 			}
 			bs, _ := DecodeBoardState(rec.Payload)
-			for _, tr := range ExtractTraces(bs.Payload) {
+			for _, tr := range TracesFor(r.Version, bs.Payload) {
 				rep.TotalTraces++
 				switch tr.Type {
 				case "NotParsed":

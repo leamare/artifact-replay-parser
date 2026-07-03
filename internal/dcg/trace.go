@@ -28,12 +28,31 @@ func WriteTrace(r *Reader) string {
 
 	objCard := map[uint64]uint32{} // objectId -> template card id, for naming
 	depth := 0
-	for _, rec := range r.Records {
-		if rec.Type != MsgBoardGameState {
-			continue
+	if r.Version == VersionClassic {
+		// 1.0: render the whole-file trace stream (delta gaps included).
+		// ScriptBlockEnd records are delta-compressed beyond recognition, so
+		// blocks render as flat sections: each Begin closes the previous one.
+		var traces []Trace
+		for _, pt := range ExtractClassicFileTraces(r.buf) {
+			tr := pt.Trace
+			if tr.Type == "ScriptBlockBegin" && depth > 0 {
+				traces = append(traces, Trace{Type: "ScriptBlockEnd"})
+				depth--
+			}
+			traces = append(traces, tr)
+			if tr.Type == "ScriptBlockBegin" {
+				depth++
+			}
 		}
-		bs, _ := DecodeBoardState(rec.Payload)
-		depth = renderTraceStream(&b, ExtractTraces(bs.Payload), depth, objCard)
+		depth = renderTraceStream(&b, traces, 0, objCard)
+	} else {
+		for _, rec := range r.Records {
+			if rec.Type != MsgBoardGameState {
+				continue
+			}
+			bs, _ := DecodeBoardState(rec.Payload)
+			depth = renderTraceStream(&b, ExtractTraces(bs.Payload), depth, objCard)
+		}
 	}
 	for depth > 0 { // close any blocks left open at end of stream
 		depth--
@@ -59,11 +78,20 @@ func renderTraceStream(b *strings.Builder, traces []Trace, depth int, objCard ma
 			}
 			fmt.Fprintf(b, "%s]\n", indentTrace(depth))
 		default:
-			if cid := cardIDOf(t); cid != 0 && t.ObjectID != 0 {
+			cid := cardIDOf(t)
+			if cid != 0 && t.ObjectID != 0 {
 				objCard[t.ObjectID] = cid
 			}
+			ref := objRef(t.ObjectID, objCard)
+			if ref == "" && cid != 0 { // no object id recovered; name the card itself
+				if name := CardName(cid); name != "" {
+					ref = fmt.Sprintf(" -'%s'", name)
+				} else {
+					ref = fmt.Sprintf(" -card%d", cid)
+				}
+			}
 			fmt.Fprintf(b, "%s%s%s%s\n", indentTrace(depth), t.DisplayType(),
-				objRef(t.ObjectID, objCard), traceFieldStr(t.Fields))
+				ref, traceFieldStr(t.Fields))
 		}
 	}
 	return depth
