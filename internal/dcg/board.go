@@ -25,7 +25,6 @@ type BoardCard struct {
 type PlayerBoard struct {
 	Player    uint32          `json:"player"`
 	Hand      []*BoardCard    `json:"hand"`
-	Deck      []*BoardCard    `json:"deck"`
 	ItemDeck  []*BoardCard    `json:"itemDeck,omitempty"`
 	Graveyard []*BoardCard    `json:"graveyard"`
 	Fountain  []*BoardCard    `json:"fountain"`
@@ -43,21 +42,24 @@ type BoardSnapshot struct {
 
 // trackedCard is the tracker's mutable per-object state.
 type trackedCard struct {
-	objectID uint64
-	cardID   uint32
-	owner    uint32
-	hasOwner bool
-	zone     string // deck|hand|lane|graveyard|fountain|spellStack|effects|shop|itemDeck
-	lane     int    // 1..3 when zone == "lane"
-	position int
-	target   uint64
-	arrow    *uint64
-	flags    map[string]any
+	objectID  uint64
+	cardID    uint32
+	owner     uint32
+	hasOwner  bool
+	zone      string // deck|hand|lane|graveyard|fountain|spellStack|effects|shop|itemDeck
+	lane      int    // 1..3 when zone == "lane"
+	position  int
+	target    uint64
+	arrow     *uint64
+	isHero    bool // heroes visit the fountain during match setup
+	deathTurn int  // turn a hero entered the fountain by dying
+	flags     map[string]any
 }
 
 // BoardTracker applies traces and produces snapshots.
 type BoardTracker struct {
 	cards map[uint64]*trackedCard
+	turn  int
 }
 
 // NewBoardTracker returns an empty tracker.
@@ -79,6 +81,21 @@ func (bt *BoardTracker) setFlag(c *trackedCard, k string, v any) {
 		c.flags = map[string]any{}
 	}
 	c.flags[k] = v
+}
+
+// SetTurn tells the tracker the current turn (for respawn countdowns).
+func (bt *BoardTracker) SetTurn(turn int) { bt.turn = turn }
+
+// Learn backfills card identity from a decoded board object (full states carry
+// objects whose CardCreated trace was delta-mangled).
+func (bt *BoardTracker) Learn(ob Object) {
+	c := bt.get(ob.ObjectID)
+	if c.cardID == 0 && ob.TemplateCardID != 0 {
+		c.cardID = ob.TemplateCardID
+	}
+	if !c.hasOwner && ob.OwnerID != nil {
+		c.owner, c.hasOwner = *ob.OwnerID, true
+	}
 }
 
 // Apply advances the board by one trace event.
@@ -163,8 +180,9 @@ func (bt *BoardTracker) Apply(tr Trace) {
 		bt.get(tr.ObjectID).zone = "graveyard"
 	case "CardKilled":
 		c := bt.get(tr.ObjectID)
-		if v, ok := f("is_hero"); ok && v != 0 {
+		if hero, ok := f("is_hero"); (ok && hero != 0) || c.isHero {
 			c.zone = "fountain" // heroes respawn via the fountain
+			c.deathTurn = bt.turn
 		} else {
 			c.zone = "graveyard"
 		}
@@ -175,12 +193,19 @@ func (bt *BoardTracker) Apply(tr Trace) {
 		if rem, ok := f("remaining_health"); ok && rem == 0 {
 			if tow, _ := f("is_tower"); tow == 0 {
 				c := bt.get(tr.ObjectID)
-				c.zone = "graveyard"
+				if c.isHero {
+					c.zone = "fountain"
+					c.deathTurn = bt.turn
+				} else {
+					c.zone = "graveyard"
+				}
 				c.target, c.arrow = 0, nil
 			}
 		}
 	case "CardReturnedToFountain":
-		bt.get(tr.ObjectID).zone = "fountain"
+		c := bt.get(tr.ObjectID)
+		c.zone = "fountain"
+		c.isHero = true // only heroes pass through the fountain
 	case "CardMovedToSpellStack":
 		bt.get(tr.ObjectID).zone = "spellStack"
 	case "CardMovedToEffects", "ImprovementEnteringPlay":
@@ -218,8 +243,8 @@ func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
 		p := byPlayer[owner]
 		if p == nil {
 			p = &PlayerBoard{
-				Player: owner,
-				Hand:   []*BoardCard{}, Deck: []*BoardCard{},
+				Player:    owner,
+				Hand:      []*BoardCard{},
 				Graveyard: []*BoardCard{}, Fountain: []*BoardCard{},
 			}
 			for i := range p.Lanes {
@@ -238,12 +263,23 @@ func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
 			Position: c.position, AttackTarget: c.target, ArrowDirection: c.arrow,
 			Flags: c.flags,
 		}
+		if c.zone == "fountain" && c.deathTurn > 0 {
+			// A dead hero redeploys after sitting out one full turn.
+			respawnIn := c.deathTurn + 2 - turn
+			if respawnIn < 0 {
+				respawnIn = 0
+			}
+			if bc.Flags == nil {
+				bc.Flags = map[string]any{}
+			}
+			bc.Flags["respawnIn"] = respawnIn
+		}
 		p := pb(c.owner)
 		switch c.zone {
 		case "hand":
 			p.Hand = append(p.Hand, bc)
 		case "deck":
-			p.Deck = append(p.Deck, bc)
+			// deck contents are in the demo-info decks; omit from snapshots
 		case "itemDeck":
 			p.ItemDeck = append(p.ItemDeck, bc)
 		case "graveyard":
@@ -267,7 +303,6 @@ func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
 			sort.Slice(lane, func(a, b int) bool { return lane[a].Position < lane[b].Position })
 		}
 		sortCards(p.Hand)
-		sortCards(p.Deck)
 		sortCards(p.Graveyard)
 		sortCards(p.Fountain)
 		st.Players = append(st.Players, p)

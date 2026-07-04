@@ -202,8 +202,22 @@ func ExtractTraces(payload []byte) []Trace {
 		// prefix. Parse that prefix (it equals the whole content in full states).
 		prefix, ok := parseTracePrefix(payload[no : no+int(ln)])
 		if !ok {
-			tr.Type = "NotParsed"
-			rows = append(rows, raw{tr: tr})
+			// Delta damage can prepend junk bytes; retry from the next few
+			// offsets before giving up.
+			for skip := 1; skip <= 3 && !ok; skip++ {
+				if no+skip < no+int(ln) {
+					prefix, ok = parseTracePrefix(payload[no+skip : no+int(ln)])
+				}
+			}
+		}
+		if !ok {
+			// With a valid type id this is a real (typed) record whose body was
+			// delta-mangled; without one, the "token" is a byte coincidence in
+			// an unconsumed delta trailer, not a record — skip it silently.
+			if tr.TypeID != 0 {
+				tr.Type = "NotParsed" // resolved to its name below when known
+				rows = append(rows, raw{tr: tr})
+			}
 			i = j + 1
 			continue
 		}
@@ -227,7 +241,14 @@ func ExtractTraces(payload []byte) []Trace {
 	prevName := ""
 	var blockStack []string
 	for _, r := range rows {
-		if r.msg == nil { // NotParsed — surfaced as-is
+		if r.msg == nil { // unparseable body
+			// A valid type id still names the trace; only the fields are lost.
+			// Ids not yet in the table surface as UnknownTrace with the id.
+			if name := lookupTypeID(r.tr.TypeID); name != "" {
+				r.tr.Type = name
+			} else {
+				r.tr.Type = ""
+			}
 			traces = append(traces, r.tr)
 			continue
 		}
@@ -275,7 +296,7 @@ func ExtractTraces(payload []byte) []Trace {
 // 32 bits (the signature of a corrupted varint read).
 func singleHugeValue(msg []byte) bool {
 	vals := firstScalarValues(msg)
-	return len(vals) == 1 && vals[1] > 1<<40
+	return len(vals) == 1 && vals[1] > 1<<35
 }
 
 // parseTracePrefix returns the leading run of msg that forms a valid protobuf
@@ -346,7 +367,8 @@ func classifyByValue(msg []byte, block, prev string) string {
 	// above the uint31 ceiling.
 	isObj := func(v uint64) bool { return v >= 1_000_000 && v < 1<<31 }
 	inPreview := block == "UPDATE_COMBAT_PREVIEW" ||
-		prev == "PreviewDeathResultChanged" || prev == "PreviewDamageChanged"
+		prev == "PreviewDeathResultChanged" || prev == "PreviewDamageChanged" ||
+		prev == "UnitChangedCombatTarget" // target updates run inside the preview
 	switch {
 	// UnitChangedCombatTarget: {new_target, lane, old_arrow, arrow, old_target}
 	// with new_target == old_target (the two combat-target object ids match).
@@ -368,6 +390,11 @@ func classifyByValue(msg []byte, block, prev string) string {
 	// with PreviewDamageChanged; small-scalar 1-3 field records adjacent to a
 	// preview trace are the damage preview (owner/new fields delta-truncated).
 	case inPreview && len(present) <= 3 && allSmall(vals, 100):
+		return "PreviewDamageChanged"
+	// A bare {old, new} small pair with no type id only occurs as the flood of
+	// damage-preview updates in diffs (real 2-field scalar traces carry their
+	// type id); context may be lost at a payload boundary.
+	case exactly(present, 1, 2) && allSmall(vals, 100):
 		return "PreviewDamageChanged"
 	}
 	return ""

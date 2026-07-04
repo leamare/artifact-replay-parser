@@ -49,6 +49,9 @@ func WritePacketsJSONL(w io.Writer, r *Reader) error {
 	for i, rec := range r.Records {
 		if rec.Type == MsgBoardGameState {
 			bs, _ := DecodeBoardState(rec.Payload)
+			for _, ob := range ExtractObjects(bs.Payload, false) {
+				board.Learn(ob)
+			}
 			for _, tr := range TracesFor(r.Version, bs.Payload) {
 				tr.Type = tr.DisplayType()
 				board.Apply(tr)
@@ -87,6 +90,7 @@ func WritePacketsJSONL(w io.Writer, r *Reader) error {
 			switch DecodeActionMarker(rec.Payload) {
 			case 2, 7: // TurnEnd, MatchComplete
 				turn++
+				board.SetTurn(turn)
 				if err := enc.Encode(board.Snapshot(turn)); err != nil {
 					return err
 				}

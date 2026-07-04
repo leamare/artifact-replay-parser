@@ -100,6 +100,41 @@ func ExtractClassicFileTraces(buf []byte) []PosTrace {
 		spans = append(spans, span{j, no + len(prefix)})
 		i = no + int(ln)
 	}
+	// Form 3: typed scalar records — [0x02][type id][…][0x1c|0x1d][len][body].
+	// Only keyframe records keep this layout (delta gaps back-reference their
+	// headers), so the yield is modest but the types are exact.
+	for i := 0; i+16 < len(buf); i++ {
+		if buf[i] != 0x02 || buf[i+1] < 2 || buf[i+1] >= 0x80 || buf[i+1]%2 == 1 {
+			continue
+		}
+		name := lookupClassicTypeID(uint64(buf[i+1]))
+		if name == "" || name == "ScriptBlockBegin" { // blocks come via form 1
+			continue
+		}
+		for d := 2; d <= 13; d++ {
+			if buf[i+d] != 0x1c && buf[i+d] != 0x1d {
+				continue
+			}
+			ln := int(buf[i+d+1])
+			if ln < 2 || ln >= 0x60 || i+d+2+ln > len(buf) {
+				continue
+			}
+			body, ok := parseTracePrefix(buf[i+d+2 : i+d+2+ln])
+			if !ok {
+				continue
+			}
+			tr := Trace{
+				TypeID:   uint64(buf[i+1]),
+				Type:     name,
+				ObjectID: precedingObjectID(buf, i),
+				Fields:   decodeTraceFields(body, name),
+			}
+			out = append(out, PosTrace{Offset: i, Trace: tr})
+			spans = append(spans, span{i, i + d + 2 + ln})
+			i = i + d + 2 + ln - 1
+			break
+		}
+	}
 	// Form 2: card-shaped protos outside the form-1 spans.
 	for _, cp := range findCardProtosLoose(buf) {
 		inSpan := false
