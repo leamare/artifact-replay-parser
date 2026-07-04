@@ -33,7 +33,11 @@ the JSON, default on), `-cards <path>` (a card-name table, see below),
   **decks** (reconstructed per-owner card lists from the card-create events) and
   **deckCodes** (raw `ADC…`/`RTFACT…` base64 codes scavenged from the stream),
   record-type counts.
-- **`.packets.jsonl`** — one JSON object per line. Non-board-state records are
+- **`.packets.jsonl`** — one JSON object per line, including a full
+  **`boardState` snapshot at each turn end**: per player
+  `{hand, deck, graveyard, fountain, lanes:[3]}` with cards as
+  `{objectId, cardId, position, attackTarget, arrowDirection, flags}`
+  (flags: revealed, locked, condemned, equippedTo). Non-board-state records are
   `{"message":"packet","type":<EDCGGameMessages name>,"data":{…}}` with **named
   fields and enum names** (Handoff, ReplayActionMarker → action string,
   VenchatoquistEvent with `gesture`, ConnectionStatus). Board states are

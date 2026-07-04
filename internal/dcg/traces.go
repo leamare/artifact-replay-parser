@@ -47,6 +47,7 @@ type Trace struct {
 // whose field1 is an EScriptBlockType; 150: CardKilled {owner,is_creep,is_hero,
 // is_combat}.)
 var knownTraceTypeIDs2 = map[uint64]string{
+	14:  "UnitChangedCombatPosition",
 	16:  "UnitChangedCombatTarget",
 	108: "ScriptBlockBegin",
 	110: "ScriptBlockEnd",
@@ -139,6 +140,20 @@ func setTraceTypeID(id uint64, name string) {
 	learnedTypeIDsMu.Unlock()
 }
 
+// WarmTraceTable runs a learning pass over every board-state payload so the
+// type-id table is fully populated before any output is emitted. Without this,
+// records early in the stream would miss names that are only shape-learned from
+// later full states (extraction is otherwise single-pass).
+func WarmTraceTable(r *Reader) {
+	for _, rec := range r.Records {
+		if rec.Type != MsgBoardGameState {
+			continue
+		}
+		bs, _ := DecodeBoardState(rec.Payload)
+		ExtractTraces(bs.Payload) // side effect: learnTypeID
+	}
+}
+
 // ExtractTraces pulls every trace record out of a board-state payload (full or
 // diff). It scans for the traceMsg token, reads the length-delimited CTraceMsg,
 // and pairs it with the nearest preceding objectId and type id. Each trace is
@@ -150,7 +165,6 @@ func ExtractTraces(payload []byte) []Trace {
 		tr         Trace
 		msg        []byte
 		shapeClass string // confident classification by field signature
-		valueClass string // heuristic classification by value pattern
 	}
 	var rows []raw
 
@@ -199,16 +213,19 @@ func ExtractTraces(payload []byte) []Trace {
 			// A confident shape match teaches the stable type-id its name, so the
 			// same type id resolves later in delta states that lack a full shape.
 			learnTypeID(tr.TypeID, row.shapeClass)
-		} else {
-			row.valueClass = classifyByValue(prefix)
 		}
 		rows = append(rows, row)
 		i = no + int(ln)
 	}
 	// Resolve each trace, preferring the stable type-id table (authoritative,
 	// and correct even for delta-truncated shapes) over the per-message shape,
-	// then the value heuristic. Decode fields under the resolved type.
+	// then the value heuristic (which uses the enclosing script block as
+	// context, tracked from the resolved Begin/End records). Decode fields
+	// under the resolved type.
 	traces := make([]Trace, 0, len(rows))
+	block := ""
+	prevName := ""
+	var blockStack []string
 	for _, r := range rows {
 		if r.msg == nil { // NotParsed — surfaced as-is
 			traces = append(traces, r.tr)
@@ -219,15 +236,46 @@ func ExtractTraces(payload []byte) []Trace {
 			name = r.shapeClass
 		}
 		if name == "" {
-			name = r.valueClass
+			name = classifyByValue(r.msg, block, prevName)
+		}
+		if name == "" && singleHugeValue(r.msg) {
+			// A lone >32-bit scalar is a mangled delta fragment, not a trace.
+			r.tr.Type = "NotParsed"
+			traces = append(traces, r.tr)
+			continue
 		}
 		r.tr.Type = name
 		if len(r.msg) > 0 { // fieldless (empty) traces carry no fields
 			r.tr.Fields = decodeTraceFields(r.msg, name)
 		}
+		switch name {
+		case "ScriptBlockBegin":
+			if v, ok := r.tr.Fields["script_type"].(string); ok {
+				blockStack = append(blockStack, v)
+				block = v
+			}
+		case "ScriptBlockEnd":
+			if len(blockStack) > 0 {
+				blockStack = blockStack[:len(blockStack)-1]
+			}
+			block = ""
+			if len(blockStack) > 0 {
+				block = blockStack[len(blockStack)-1]
+			}
+		}
+		if name != "" {
+			prevName = name
+		}
 		traces = append(traces, r.tr)
 	}
 	return traces
+}
+
+// singleHugeValue reports whether msg decodes to exactly one scalar exceeding
+// 32 bits (the signature of a corrupted varint read).
+func singleHugeValue(msg []byte) bool {
+	vals := firstScalarValues(msg)
+	return len(vals) == 1 && vals[1] > 1<<40
 }
 
 // parseTracePrefix returns the leading run of msg that forms a valid protobuf
@@ -281,9 +329,11 @@ func classifyShapeOnly(msg []byte) string {
 const negOne = ^uint64(0)
 
 // classifyByValue classifies a delta trace whose field set is shape-ambiguous
-// using distinctive scalar value patterns. Only patterns confident enough to
-// avoid mislabeling are encoded here.
-func classifyByValue(msg []byte) string {
+// using distinctive scalar value patterns (delta records can lose their
+// trailing fields, so truncated forms are matched too). block is the enclosing
+// script-block name and prev the previous resolved trace, both "" when unknown;
+// they give context for the combat-preview cluster whose deltas lose fields.
+func classifyByValue(msg []byte, block, prev string) string {
 	present, wire := messageSignature(msg)
 	for _, w := range wire {
 		if w == wireBytes {
@@ -291,17 +341,46 @@ func classifyByValue(msg []byte) string {
 		}
 	}
 	vals := firstScalarValues(msg)
+	// Object ids are drawn from the full uint31 range; the low bound just has
+	// to clear small scalars/enums. Murmur attribute tokens overwhelmingly land
+	// above the uint31 ceiling.
+	isObj := func(v uint64) bool { return v >= 1_000_000 && v < 1<<31 }
+	inPreview := block == "UPDATE_COMBAT_PREVIEW" ||
+		prev == "PreviewDeathResultChanged" || prev == "PreviewDamageChanged"
 	switch {
 	// UnitChangedCombatTarget: {new_target, lane, old_arrow, arrow, old_target}
 	// with new_target == old_target (the two combat-target object ids match).
 	case exactly(present, 1, 2, 3, 4, 5) && vals[1] == vals[5] && vals[1] > 1000:
 		return "UnitChangedCombatTarget"
+	// … delta-truncated to 4 fields: {target(objid), lane 1..3, arrows 0..3}.
+	case exactly(present, 1, 2, 3, 4) && isObj(vals[1]) &&
+		vals[2] >= 1 && vals[2] <= 3 && vals[3] <= 3 && vals[4] <= 3:
+		return "UnitChangedCombatTarget"
 	// UnitChangedCombatPosition: {new_pos, old_pos(int32), owner, lane} where a
 	// unit entering combat has old_combat_position == -1.
 	case exactly(present, 1, 2, 3, 4) && vals[2] == negOne:
 		return "UnitChangedCombatPosition"
+	// AttributeValueChanged: f1 is a murmur attribute token — a hash, so it
+	// lands above the object-id range with high probability.
+	case (exactly(present, 1, 2) || exactly(present, 1, 2, 3)) && vals[1] >= 1<<31:
+		return "AttributeValueChanged"
+	// The combat-preview cluster alternates PreviewDeathResultChanged (id-typed)
+	// with PreviewDamageChanged; small-scalar 1-3 field records adjacent to a
+	// preview trace are the damage preview (owner/new fields delta-truncated).
+	case inPreview && len(present) <= 3 && allSmall(vals, 100):
+		return "PreviewDamageChanged"
 	}
 	return ""
+}
+
+// allSmall reports whether every value is below limit.
+func allSmall(vals map[int]uint64, limit uint64) bool {
+	for _, v := range vals {
+		if v >= limit {
+			return false
+		}
+	}
+	return true
 }
 
 // firstScalarValues maps each scalar field number to its first value.

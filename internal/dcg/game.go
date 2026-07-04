@@ -69,6 +69,7 @@ type BuildOptions struct {
 
 // BuildGame turns a parsed container into the turn-grouped Game model.
 func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
+	WarmTraceTable(r)
 	includeTraces := opt.IncludeTraces || opt.IncludeBoard || opt.IncludeObjects
 	g := &Game{
 		File:             file,

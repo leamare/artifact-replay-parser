@@ -39,17 +39,22 @@ type TraceLine struct {
 // For 1.0, traces come from the whole-file scan (delta gaps included) and are
 // interleaved with the packets by file offset.
 func WritePacketsJSONL(w io.Writer, r *Reader) error {
+	WarmTraceTable(r)
 	enc := json.NewEncoder(w)
 	if r.Version == VersionClassic {
 		return writeClassicPacketsJSONL(enc, r)
 	}
+	board := NewBoardTracker()
+	turn := 0
 	for i, rec := range r.Records {
 		if rec.Type == MsgBoardGameState {
 			bs, _ := DecodeBoardState(rec.Payload)
 			for _, tr := range TracesFor(r.Version, bs.Payload) {
+				tr.Type = tr.DisplayType()
+				board.Apply(tr)
 				line := TraceLine{
 					Message:  "trace",
-					Type:     tr.DisplayType(),
+					Type:     tr.Type,
 					Group:    bs.NetworkGroup,
 					IsDiff:   bs.IsDiff,
 					ObjectID: tr.ObjectID,
@@ -76,6 +81,17 @@ func WritePacketsJSONL(w io.Writer, r *Reader) error {
 		if err := enc.Encode(p); err != nil {
 			return err
 		}
+		// Emit the full board snapshot at the end of every turn (and at match
+		// completion).
+		if rec.Type == MsgReplayActionMark {
+			switch DecodeActionMarker(rec.Payload) {
+			case 2, 7: // TurnEnd, MatchComplete
+				turn++
+				if err := enc.Encode(board.Snapshot(turn)); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -84,14 +100,19 @@ func WritePacketsJSONL(w io.Writer, r *Reader) error {
 // their byte offsets, so the JSONL preserves game order.
 func writeClassicPacketsJSONL(enc *json.Encoder, r *Reader) error {
 	traces := ExtractClassicFileTraces(r.buf)
+	board := NewBoardTracker()
+	turn := 0
 	ti := 0
 	emitTrace := func(pt PosTrace) error {
+		tr := pt.Trace
+		tr.Type = tr.DisplayType()
+		board.Apply(tr)
 		return enc.Encode(TraceLine{
 			Message:  "trace",
-			Type:     pt.Trace.DisplayType(),
-			ObjectID: pt.Trace.ObjectID,
-			TypeID:   pt.Trace.TypeID,
-			Data:     pt.Trace.Fields,
+			Type:     tr.Type,
+			ObjectID: tr.ObjectID,
+			TypeID:   tr.TypeID,
+			Data:     tr.Fields,
 		})
 	}
 	for i, rec := range r.Records {
@@ -118,13 +139,26 @@ func writeClassicPacketsJSONL(enc *json.Encoder, r *Reader) error {
 		if err := enc.Encode(p); err != nil {
 			return err
 		}
+		// 1.0 recovers markers sparsely; snapshot the board at each one that
+		// closes a turn.
+		if rec.Type == MsgReplayActionMark {
+			switch DecodeActionMarker(rec.Payload) {
+			case 2, 7, 9: // TurnEnd, MatchComplete, LaneEnd
+				turn++
+				if err := enc.Encode(board.Snapshot(turn)); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	for ; ti < len(traces); ti++ {
 		if err := emitTrace(traces[ti]); err != nil {
 			return err
 		}
 	}
-	return nil
+	// Always close with a final board snapshot (1.0 files often lack a
+	// MatchComplete marker).
+	return enc.Encode(board.Snapshot(turn + 1))
 }
 
 // DemoInfo is the high-level summary (the CDemoFileInfo / CGameInfo analogue).

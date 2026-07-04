@@ -19,6 +19,7 @@ import (
 
 // WriteTrace returns the obtrace-style text for a parsed container.
 func WriteTrace(r *Reader) string {
+	WarmTraceTable(r)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s  match %d  (%d records)\n", r.Version, r.MatchID, len(r.Records))
 	if !r.ContainerDecoded {

@@ -56,7 +56,7 @@
     "98": "CardPlayed"
   },
   "unknown": {},
-  "notParsed": 20,
+  "notParsed": 22,
   "tracesWithoutId": [
     "AchievementAchieved",
     "CardEffectCalculation",
