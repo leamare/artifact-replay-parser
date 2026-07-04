@@ -259,10 +259,22 @@ func ExtractTraces(payload []byte) []Trace {
 		if name == "" {
 			name = classifyByValue(r.msg, block, prevName)
 		}
+		if name == "" && soleShortBytesField(r.msg) && r.tr.TypeID == 0 {
+			continue // delta fragment (a stray length-delimited read), not a record
+		}
 		if name == "" && singleHugeValue(r.msg) {
-			// A lone >32-bit scalar is a mangled delta fragment, not a trace.
-			r.tr.Type = "NotParsed"
-			traces = append(traces, r.tr)
+			// A lone huge scalar is a mangled varint read. With a type id the
+			// record is still typed (fieldless — a clean copy follows in the
+			// next state refresh); without one it's a delta fragment: drop it.
+			if idName := lookupTypeID(r.tr.TypeID); idName != "" {
+				r.tr.Type = idName
+				r.tr.Fields = nil
+				traces = append(traces, r.tr)
+			} else if r.tr.TypeID != 0 {
+				r.tr.Type = "" // unknown id: surface for the metadata table
+				r.tr.Fields = nil
+				traces = append(traces, r.tr)
+			}
 			continue
 		}
 		r.tr.Type = name
@@ -396,6 +408,9 @@ func classifyByValue(msg []byte, block, prev string) string {
 	// type id); context may be lost at a payload boundary.
 	case exactly(present, 1, 2) && allSmall(vals, 100):
 		return "PreviewDamageChanged"
+	// {owner, card template id}: the shop stocking a random item.
+	case exactly(present, 1, 2) && vals[1] < 4 && vals[2] >= 1000 && vals[2] <= maxTemplateCardID:
+		return "RandomShopItemCreated"
 	}
 	return ""
 }
@@ -713,4 +728,38 @@ func overlap(present, sigSet map[int]bool) int {
 // SortTracesByObject is a stable helper for deterministic output.
 func SortTracesByObject(ts []Trace) {
 	sort.SliceStable(ts, func(i, j int) bool { return ts[i].ObjectID < ts[j].ObjectID })
+}
+
+// refreshDedupe suppresses the re-emission of trace records that full-state
+// refreshes carry: the append→truncate→refresh cycle re-serializes the last N
+// records verbatim, so a refresh contributes a record only when it wasn't
+// already emitted (which also repairs records whose diff body was mangled).
+type refreshDedupe struct {
+	recent []([2]uint64) // (typeId, objectId) ring of recent emissions
+}
+
+const refreshWindow = 64
+
+func (d *refreshDedupe) remember(tr Trace) {
+	d.recent = append(d.recent, [2]uint64{tr.TypeID, tr.ObjectID})
+	if len(d.recent) > refreshWindow {
+		d.recent = d.recent[len(d.recent)-refreshWindow:]
+	}
+}
+
+func (d *refreshDedupe) seen(tr Trace) bool {
+	key := [2]uint64{tr.TypeID, tr.ObjectID}
+	for _, k := range d.recent {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// soleShortBytesField reports whether msg decodes to exactly one short bytes
+// field — the signature of a stray delta fragment misread as a message.
+func soleShortBytesField(msg []byte) bool {
+	present, wire := messageSignature(msg)
+	return len(present) == 1 && present[1] && wire[1] == wireBytes
 }

@@ -104,35 +104,40 @@ func ExtractClassicFileTraces(buf []byte) []PosTrace {
 	// Only keyframe records keep this layout (delta gaps back-reference their
 	// headers), so the yield is modest but the types are exact.
 	for i := 0; i+16 < len(buf); i++ {
-		if buf[i] != 0x02 || buf[i+1] < 2 || buf[i+1] >= 0x80 || buf[i+1]%2 == 1 {
+		if buf[i] != 0x02 {
 			continue
 		}
-		name := lookupClassicTypeID(uint64(buf[i+1]))
+		tid, after := uvarint(buf, i+1)
+		if after == 0 || after-i-1 > 2 || tid < 2 || tid > 170 || tid%2 == 1 {
+			continue
+		}
+		name := lookupClassicTypeID(tid)
 		if name == "" || name == "ScriptBlockBegin" { // blocks come via form 1
 			continue
 		}
-		for d := 2; d <= 13; d++ {
+		matched := false
+		for d := after - i; d <= 13 && !matched; d++ {
 			if buf[i+d] != 0x1c && buf[i+d] != 0x1d {
 				continue
 			}
-			ln := int(buf[i+d+1])
-			if ln < 2 || ln >= 0x60 || i+d+2+ln > len(buf) {
+			ln, no := uvarint(buf, i+d+1)
+			if no == 0 || ln < 2 || ln >= 0x80 || no+int(ln) > len(buf) {
 				continue
 			}
-			body, ok := parseTracePrefix(buf[i+d+2 : i+d+2+ln])
+			body, ok := parseTracePrefix(buf[no : no+int(ln)])
 			if !ok {
 				continue
 			}
 			tr := Trace{
-				TypeID:   uint64(buf[i+1]),
+				TypeID:   tid,
 				Type:     name,
 				ObjectID: precedingObjectID(buf, i),
 				Fields:   decodeTraceFields(body, name),
 			}
 			out = append(out, PosTrace{Offset: i, Trace: tr})
-			spans = append(spans, span{i, i + d + 2 + ln})
-			i = i + d + 2 + ln - 1
-			break
+			spans = append(spans, span{i, no + int(ln)})
+			i = no + int(ln) - 1
+			matched = true
 		}
 	}
 	// Form 2: card-shaped protos outside the form-1 spans.

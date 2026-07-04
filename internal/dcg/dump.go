@@ -46,14 +46,24 @@ func WritePacketsJSONL(w io.Writer, r *Reader) error {
 	}
 	board := NewBoardTracker()
 	turn := 0
+	dedupe := &refreshDedupe{}
+	seenFull := map[uint32]bool{} // per network group: first full state emits all
 	for i, rec := range r.Records {
 		if rec.Type == MsgBoardGameState {
 			bs, _ := DecodeBoardState(rec.Payload)
 			for _, ob := range ExtractObjects(bs.Payload, false) {
 				board.Learn(ob)
 			}
+			isRefresh := !bs.IsDiff && seenFull[bs.NetworkGroup]
+			if !bs.IsDiff {
+				seenFull[bs.NetworkGroup] = true
+			}
 			for _, tr := range TracesFor(r.Version, bs.Payload) {
 				tr.Type = tr.DisplayType()
+				if isRefresh && dedupe.seen(tr) {
+					continue // refresh re-serializes recent records verbatim
+				}
+				dedupe.remember(tr)
 				board.Apply(tr)
 				line := TraceLine{
 					Message:  "trace",
