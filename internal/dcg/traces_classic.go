@@ -159,8 +159,120 @@ func ExtractClassicFileTraces(buf []byte) []PosTrace {
 		}
 		out = append(out, PosTrace{Offset: cp.off, Trace: tr})
 	}
+	// Form 4: creep-copy records — `10 [objid] 05 24 32`. These reproduce the
+	// baseline creep's card via a field-path copy (no inline proto), so they
+	// carry no template of their own; inherit the most recent creep template
+	// decoded from a real proto. The signature is specific (copy-baseline-creep)
+	// so this doesn't invent records, only recovers the copied one's identity.
+	out = append(out, findCreepCopies(buf, out)...)
 	sortPosTraces(out)
+	out = inferMissingBlocks(out)
 	return out
+}
+
+// findCreepCopies recovers the copy-encoded creep records. baselineTemplate is
+// taken from the nearest preceding real creep proto in the already-recovered
+// set (templates in the creep range 1000..1099).
+func findCreepCopies(buf []byte, recovered []PosTrace) []PosTrace {
+	// creep templates by file offset, from real protos already recovered
+	type tmplAt struct {
+		off  int
+		tmpl uint32
+	}
+	var creeps []tmplAt
+	for _, pt := range recovered {
+		if t, ok := pt.Trace.Fields["template_card_id"]; ok {
+			if id, ok2 := toU64(t); ok2 && id >= 1000 && id <= 1099 {
+				creeps = append(creeps, tmplAt{pt.Offset, uint32(id)})
+			}
+		}
+	}
+	if len(creeps) == 0 {
+		return nil
+	}
+	baselineFor := func(off int) uint32 {
+		tmpl := creeps[0].tmpl
+		for _, c := range creeps {
+			if c.off <= off {
+				tmpl = c.tmpl
+			}
+		}
+		return tmpl
+	}
+	var out []PosTrace
+	i := 0
+	for i < len(buf)-9 {
+		if buf[i] != 0x10 {
+			i++
+			continue
+		}
+		v, o := uvarint(buf, i+1)
+		if o-i-1 != 5 || v < objIDMin || v >= objIDMax || o+3 > len(buf) ||
+			buf[o] != 0x05 || buf[o+1] != 0x24 || buf[o+2] != 0x32 {
+			i++
+			continue
+		}
+		tmpl := baselineFor(i)
+		out = append(out, PosTrace{Offset: i, Trace: Trace{
+			Type:     "CardCreated",
+			ObjectID: v,
+			Fields: map[string]any{
+				"template_card_id": uint64(tmpl),
+				"card_name":        CardName(tmpl),
+				"copied":           true, // template inherited from baseline creep
+			},
+		}})
+		i = o + 3
+	}
+	return out
+}
+
+// inferMissingBlocks inserts script-block Begins that the canonical phase
+// order implies but the delta compression hid. The game's block chains are
+// deterministic (verified against the 1.0 reference console logs): shopping
+// always runs START → UPDATE → FINISHED, and AFTER_COMBAT_PHASE always follows
+// COMBAT. Inferred blocks are marked with an "inferred" field so they are
+// distinguishable from recovered ones.
+func inferMissingBlocks(ts []PosTrace) []PosTrace {
+	// canonical predecessor chains, by EScriptBlockType name
+	chains := map[string][]string{
+		"SHOPPING_FINISHED":  {"SHOPPING_START", "SHOPPING_UPDATE"},
+		"SHOPPING_UPDATE":    {"SHOPPING_START"},
+		"AFTER_COMBAT_PHASE": {"COMBAT"},
+	}
+	seen := map[string]bool{}
+	var res []PosTrace
+	for _, pt := range ts {
+		if pt.Trace.Type == "ScriptBlockBegin" {
+			st, _ := pt.Trace.Fields["script_type"].(string)
+			for _, pre := range chains[st] {
+				if !seen[pre] {
+					res = append(res, PosTrace{Offset: pt.Offset, Trace: Trace{
+						Type: "ScriptBlockBegin",
+						Fields: map[string]any{
+							"script_type": pre,
+							"inferred":    true,
+						},
+					}})
+					seen[pre] = true
+				}
+			}
+			seen[st] = true
+			// A chain's terminal block closes the cycle; reset so the next
+			// turn's chain is inferred again.
+			switch st {
+			case "SHOPPING_FINISHED":
+				delete(seen, "SHOPPING_START")
+				delete(seen, "SHOPPING_UPDATE")
+				delete(seen, "SHOPPING_FINISHED")
+			case "AFTER_COMBAT_PHASE":
+				delete(seen, "COMBAT")
+				delete(seen, "AFTER_COMBAT_PHASE")
+			}
+		}
+		res = append(res, pt)
+	}
+	return res
 }
 
 // findCardProtosLoose is findCardProtos with validation suited to the delta
