@@ -585,6 +585,8 @@ func decodeTraceFields(msg []byte, name string) map[string]any {
 				if name := CardName(uint32(f.V)); name != "" {
 					out["card_name"] = name
 				}
+			case signedField(key):
+				appendField(out, key, asSigned(f.V))
 			default:
 				appendField(out, key, f.V)
 			}
@@ -603,8 +605,23 @@ func decodeTraceFields(msg []byte, name string) map[string]any {
 // attribute map (the card instance attributes), which we decode into named
 // attributes rather than showing as raw bytes.
 func isAttributeField(key string) bool {
-	return key == "card_instance_attributes"
+	return key == "card_instance_attributes" || key == "card_calculated_effects"
 }
+
+// signedField reports whether a field holds a signed value stored in an
+// unsigned proto field, so -1 (a sentinel for "none"/"off-board") renders as
+// -1 instead of 18446744073709551615.
+func signedField(key string) bool {
+	switch key {
+	case "old_combat_position", "new_combat_position", "combat_position",
+		"desired_combat_position", "old_arrow_direction", "arrow_direction":
+		return true
+	}
+	return false
+}
+
+// asSigned reinterprets a proto varint as a 32-bit signed value.
+func asSigned(v uint64) int64 { return int64(int32(uint32(v))) }
 
 // attributesToJSON renders decoded attributes as a name->value (or #hash->value)
 // map, surfacing zoneId (location), ownerId, etc.

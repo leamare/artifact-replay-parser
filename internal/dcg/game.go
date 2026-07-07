@@ -178,6 +178,24 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 			tr := pt.Trace
 			tr.Type = tr.DisplayType()
 			t.Traces = append(t.Traces, tr)
+			// Populate the object index from card-create traces: they carry the
+			// objectId + template that DecodeClassicState's inline-card scan
+			// misses for copy/delta-encoded records.
+			if tr.ObjectID != 0 {
+				if cid := cardIDOf(tr); cid != 0 {
+					ref := objects[tr.ObjectID]
+					if ref == nil || ref.CardID == 0 {
+						nr := &ObjectRef{CardID: cid, CardName: CardName(cid)}
+						if v, ok := tr.Fields["owner_id"]; ok {
+							if n, ok := toU64(v); ok {
+								o := uint32(n)
+								nr.Owner = &o
+							}
+						}
+						objects[tr.ObjectID] = nr
+					}
+				}
+			}
 		}
 	}
 

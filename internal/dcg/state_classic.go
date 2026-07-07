@@ -103,11 +103,29 @@ func DecodeClassicState(payload []byte) (objects []ClassicObject, zones []string
 	return objects, zones
 }
 
-// extractZoneStrings recovers the length-prefixed names embedded in container
-// objects ([u16 little-endian length][string]).
+// knownZoneNames are the board container/zone names DCG serializes. The state
+// tree stores them as typed-tree strings whose length prefix varies (1-byte for
+// short names, u16 for longer), so short zones (Deck, Hand) are matched
+// literally rather than by a single length-prefix rule.
+var knownZoneNames = []string{
+	"Deck", "Hand", "Shop", "Fountain", "Graveyard", "Effects", "Spell Stack",
+	"Lane", "Lane 1", "Lane 2", "Lane 3", "Tower", "Item Deck", "Hidden",
+	"Public", "Private Player Info", "Card Game Data", "Script Lock",
+	"Trace Events",
+}
+
+// extractZoneStrings recovers the container/zone names embedded in the state.
+// It combines a length-prefixed scan ([u16 length][string]) with a literal
+// match of the known short zone names the prefix scan misses.
 func extractZoneStrings(payload []byte) []string {
 	var out []string
 	seen := map[string]bool{}
+	add := func(str string) {
+		if !seen[str] {
+			seen[str] = true
+			out = append(out, str)
+		}
+	}
 	for i := 0; i+2 < len(payload); i++ {
 		n := int(binary.LittleEndian.Uint16(payload[i:]))
 		if n < 3 || n > 28 || i+2+n > len(payload) { // zone names are short words
@@ -117,12 +135,31 @@ func extractZoneStrings(payload []byte) []string {
 		if !printableASCII(s) || hasBase64Special(s) {
 			continue
 		}
-		str := string(s)
-		if !seen[str] {
-			seen[str] = true
-			out = append(out, str)
-		}
+		add(string(s))
 		i += 2 + n - 1
+	}
+	// Literal match for the known short zones the u16 scan misses. Require
+	// non-letter bytes on both sides so a name isn't matched inside a longer
+	// token (e.g. "Deck" inside a base64 "Decklist").
+	isLetter := func(c byte) bool {
+		return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
+	}
+	for _, z := range knownZoneNames {
+		zb := []byte(z)
+		j := 0
+		for {
+			k := indexFrom(payload, zb, j)
+			if k < 0 {
+				break
+			}
+			j = k + 1
+			before := k == 0 || !isLetter(payload[k-1])
+			after := k+len(zb) >= len(payload) || !isLetter(payload[k+len(zb)])
+			if before && after {
+				add(z)
+				break
+			}
+		}
 	}
 	return out
 }

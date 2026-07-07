@@ -159,6 +159,13 @@ func ExtractClassicFileTraces(buf []byte) []PosTrace {
 		}
 		out = append(out, PosTrace{Offset: cp.off, Trace: tr})
 	}
+	// Form 5: codec-decoded top-level records. The reverse-engineered state
+	// codec (state_codec.go) parses the entity map cleanly, giving each
+	// top-level record's traceMsg protobuf typed by its `type` field — more
+	// principled than the proto-signature scan for the records it reaches.
+	for _, rec := range findCodecTraces(buf) {
+		out = append(out, rec)
+	}
 	// Form 4: creep-copy records — `10 [objid] 05 24 32`. These reproduce the
 	// baseline creep's card via a field-path copy (no inline proto), so they
 	// carry no template of their own; inherit the most recent creep template
@@ -166,8 +173,65 @@ func ExtractClassicFileTraces(buf []byte) []PosTrace {
 	// so this doesn't invent records, only recovers the copied one's identity.
 	out = append(out, findCreepCopies(buf, out)...)
 	sortPosTraces(out)
+	out = dedupePosTraces(out)
 	out = inferMissingBlocks(out)
 	return out
+}
+
+// dedupePosTraces drops exact-duplicate traces (same type, object, and fields)
+// that different extraction forms can both recover.
+func dedupePosTraces(ts []PosTrace) []PosTrace {
+	seen := map[string]bool{}
+	out := ts[:0]
+	for _, pt := range ts {
+		key := pt.Trace.Type + "|" + utoa(pt.Trace.ObjectID) + "|" +
+			utoa(pt.Trace.TypeID) + "|" + fmtFields(pt.Trace.Fields)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, pt)
+	}
+	return out
+}
+
+// fmtFields renders a trace's fields deterministically for dedup keys.
+func fmtFields(f map[string]any) string {
+	if len(f) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(f))
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sortStrings(keys)
+	s := ""
+	for _, k := range keys {
+		s += k + "=" + fmtAny(f[k]) + ";"
+	}
+	return s
+}
+
+func fmtAny(v any) string {
+	switch n := v.(type) {
+	case uint64:
+		return utoa(n)
+	case int64:
+		return itoa(int(n))
+	case int:
+		return itoa(n)
+	case string:
+		return n
+	}
+	return ""
+}
+
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
 }
 
 // findCreepCopies recovers the copy-encoded creep records. baselineTemplate is
