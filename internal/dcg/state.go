@@ -143,55 +143,66 @@ var objectIdToken = MakeStringToken("objectId")
 // (objectId, ownerId, zoneId, …) are always recovered even if a later
 // multi-value field is ambiguous.
 func decodeAttributes(b []byte) []Attr {
+	// In 1.0 the attribute blob is field-path encoded: [field-path ops][token]
+	// [valtype][value] triples interleaved with navigation bytes. The 2.0 form
+	// is a clean [token][valtype][value] run from offset 0. Both are handled by
+	// scanning for the known attribute tokens and reading the value that
+	// follows — a field-path op never looks like a murmur attribute token.
 	var attrs []Attr
-	o := 0
-	for o < len(b) {
-		if !isFieldStart(b, o) {
-			if b[o] == 0 { // padding / terminator
-				o++
+	seen := map[uint32]bool{}
+	for _, at := range attributeTokens {
+		i := 0
+		for {
+			j := indexFrom(b, tokenLE(at.tok), i)
+			if j < 0 || j+5 > len(b) {
+				break
+			}
+			i = j + 4
+			vt := b[j+4]
+			if vt >= 0x20 { // not a valtype — a coincidental token match
 				continue
 			}
+			var val uint64
+			if vt == valtypeBytes {
+				n, no := uvarint(b, j+5)
+				if no == 0 {
+					continue
+				}
+				val = n
+			} else {
+				v, no := uvarint(b, j+5)
+				if no == 0 {
+					continue
+				}
+				val = v
+			}
+			if seen[at.tok] {
+				break
+			}
+			seen[at.tok] = true
+			attrs = append(attrs, Attr{Name: at.name, Value: val})
 			break
 		}
-		tok := leU32(b[o:])
-		vt := b[o+4]
-		o += 5
-		var val uint64
-		if vt == valtypeBytes {
-			n, no := uvarint(b, o)
-			if no == 0 || no+int(n) > len(b) {
-				break
-			}
-			val = n // surface the blob length
-			o = no + int(n)
-		} else {
-			v, no := uvarint(b, o)
-			if no == 0 {
-				break
-			}
-			val = v
-			o = no
-			// Consume any extra value varints of a multi-value field.
-			for o < len(b) && !isFieldStart(b, o) && b[o] != 0 {
-				_, no2 := uvarint(b, o)
-				if no2 == 0 || no2 == o {
-					break
-				}
-				o = no2
-			}
-		}
-		if tok == objectIdToken {
-			continue
-		}
-		a := Attr{Value: val}
-		if name := TokenName(tok); name != "" {
-			a.Name = name
-		} else {
-			a.Hash = hexToken(tok)
-		}
-		attrs = append(attrs, a)
 	}
 	return attrs
+}
+
+// attributeTokens are the card-instance attributes we recover from the blob
+// (enough to place a card and describe its combat state).
+var attributeTokens = []struct {
+	name string
+	tok  uint32
+}{
+	{"ownerId", MakeStringToken("ownerId")},
+	{"zoneId", MakeStringToken("zoneId")},
+	{"laneId", MakeStringToken("laneId")},
+	{"combatPosition", MakeStringToken("combatPosition")},
+	{"wasSpawnedAsDire", MakeStringToken("wasSpawnedAsDire")},
+	{"manaCost", MakeStringToken("manaCost")},
+	{"goldCost", MakeStringToken("goldCost")},
+	{"health", MakeStringToken("health")},
+	{"attack", MakeStringToken("attack")},
+	{"armor", MakeStringToken("armor")},
 }
 
 // valtypeBytes is the valtype code for a length-delimited (sub-message) value.

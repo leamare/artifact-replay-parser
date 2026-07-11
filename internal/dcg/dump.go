@@ -137,7 +137,16 @@ func writeClassicPacketsJSONL(enc *json.Encoder, r *Reader) error {
 			ti++
 		}
 		if rec.Type == MsgBoardGameState {
-			continue // its traces are covered by the whole-file scan
+			// Each board state is a game moment; the traces up to here have been
+			// applied to the board, so snapshot it. (Per-action field-path deltas
+			// within a state aren't decoded yet, so the board reflects the
+			// recoverable records.)
+			turn++
+			board.SetTurn(turn)
+			if err := enc.Encode(board.Snapshot(turn)); err != nil {
+				return err
+			}
+			continue
 		}
 		p := Packet{
 			Message: "packet",
@@ -152,17 +161,6 @@ func writeClassicPacketsJSONL(enc *json.Encoder, r *Reader) error {
 		}
 		if err := enc.Encode(p); err != nil {
 			return err
-		}
-		// 1.0 recovers markers sparsely; snapshot the board at each one that
-		// closes a turn.
-		if rec.Type == MsgReplayActionMark {
-			switch DecodeActionMarker(rec.Payload) {
-			case 2, 7, 9: // TurnEnd, MatchComplete, LaneEnd
-				turn++
-				if err := enc.Encode(board.Snapshot(turn)); err != nil {
-					return err
-				}
-			}
 		}
 	}
 	for ; ti < len(traces); ti++ {

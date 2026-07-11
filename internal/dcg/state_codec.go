@@ -145,6 +145,22 @@ func decodeCodecMap(d []byte) []CodecField {
 	return out
 }
 
+// decodeCodecMapN decodes up to n fields (a bounded validity probe) without
+// resync — it stops at the first malformed node.
+func decodeCodecMapN(d []byte, n int) []CodecField {
+	var out []CodecField
+	o := 0
+	for o+5 <= len(d) && len(out) < n {
+		f, no, ok := decodeCodecValue(d, o)
+		if !ok || f.Key == 0 {
+			break
+		}
+		out = append(out, f)
+		o = no
+	}
+	return out
+}
+
 // decodeCodecValue reads one [u32 key][type][data] node. ok is false when the
 // node is malformed (caller resyncs).
 func decodeCodecValue(d []byte, o int) (f CodecField, next int, ok bool) {

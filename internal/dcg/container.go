@@ -263,6 +263,11 @@ func (r *Reader) scanClassic() {
 		off = next
 	}
 	framed := len(r.Records)
+	// The 0xb6 frame headers don't chain (the `a` field is variable-width), so
+	// most board states aren't reached by frame tiling. Recover them by their
+	// protobuf signature instead — this yields the full per-action sequence of
+	// states (and thus turns), not just the opening keyframe.
+	r.scavengeClassicBoardStates()
 	// The non-b6 region is a stream of length-delimited protobuf GC messages.
 	// Scavenge the ones we can confidently classify (chat/venchatoquist) so chat
 	// and personas surface; keep them in file order.
@@ -278,6 +283,58 @@ func (r *Reader) scanClassic() {
 		"incl. keyframe board states) + %d scavenged length-delimited GC messages; "+
 		"the bulk per-action delta stream is still being reverse-engineered",
 		framed, pct, len(r.Records)-framed)
+}
+
+// scavengeClassicBoardStates finds every CMsgGameBoardGameState in a 1.0 file by
+// its protobuf signature (`08 <is_diff> 10 <field2> 1a <len> <payload>`),
+// validated by the payload decoding as the board-state codec. These are the
+// per-action board states the 0xb6 frame tiling misses.
+func (r *Reader) scavengeClassicBoardStates() {
+	b := r.buf
+	seen := make(map[int]bool)
+	for _, rec := range r.Records {
+		seen[rec.Offset] = true
+	}
+	i := 12
+	for i < len(b)-8 {
+		if b[i] != 0x08 || b[i+1] > 1 || b[i+2] != 0x10 {
+			i++
+			continue
+		}
+		_, o := uvarint(b, i+3) // field 2 value
+		if o == 0 || o >= len(b) || b[o] != 0x1a {
+			i++
+			continue
+		}
+		ln, no := uvarint(b, o+1)
+		if no == 0 || ln < 10 || ln > 1<<20 || no+int(ln) > len(b) {
+			i++
+			continue
+		}
+		payload := b[no : no+int(ln)]
+		if !codecParseable(payload) {
+			i++
+			continue
+		}
+		if !seen[i] {
+			r.Records = append(r.Records, Record{
+				Offset: i, Type: MsgBoardGameState, Payload: payload, Scavenged: true,
+			})
+			seen[i] = true
+		}
+		i = no + int(ln)
+	}
+}
+
+// codecParseable reports whether a payload decodes as at least a few clean
+// board-state codec fields (a cheap validity gate for the signature scan).
+func codecParseable(p []byte) bool {
+	for st := 0; st < 6; st++ {
+		if len(decodeCodecMapN(p[min(st, len(p)):], 3)) >= 3 {
+			return true
+		}
+	}
+	return false
 }
 
 // scavengeClassic recovers length-delimited protobuf GC messages from the 1.0

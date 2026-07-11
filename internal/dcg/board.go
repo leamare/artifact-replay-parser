@@ -116,6 +116,11 @@ func (bt *BoardTracker) Apply(tr Trace) {
 		if v, ok := f("is_item"); ok && v != 0 {
 			c.zone = "itemDeck"
 		}
+		// Place the card from its instance attributes (1.0 card records carry
+		// zoneId/ownerId/laneId in card_instance_attributes).
+		if a, ok := tr.Fields["card_instance_attributes"].(map[string]any); ok {
+			bt.placeFromAttrs(c, a)
+		}
 	case "CardRevealed":
 		c := bt.get(tr.ObjectID)
 		if v, ok := f("template_card_id"); ok {
@@ -320,4 +325,43 @@ func addOther(p *PlayerBoard, zone string, bc *BoardCard) {
 
 func sortCards(cs []*BoardCard) {
 	sort.Slice(cs, func(a, b int) bool { return cs[a].ObjectID < cs[b].ObjectID })
+}
+
+// classicZoneNames maps a 1.0 zoneId to a board zone. The enum is inferred from
+// the container zone strings; deck/hand/lanes/graveyard/fountain are the
+// gameplay zones. Unknown ids leave the card in its current zone.
+func classicZone(id uint64) (string, int) {
+	switch id {
+	case 0:
+		return "deck", 0
+	case 1:
+		return "hand", 0
+	case 2, 3, 4:
+		return "lane", int(id - 1) // lanes 1..3
+	case 5:
+		return "graveyard", 0
+	case 6:
+		return "fountain", 0
+	case 7:
+		return "shop", 0
+	}
+	return "", 0
+}
+
+// placeFromAttrs sets a card's zone/owner/position from its instance attributes.
+func (bt *BoardTracker) placeFromAttrs(c *trackedCard, a map[string]any) {
+	if v, ok := toU64(a["ownerId"]); ok {
+		c.owner, c.hasOwner = uint32(v), true
+	}
+	if v, ok := toU64(a["zoneId"]); ok {
+		if z, lane := classicZone(v); z != "" {
+			c.zone = z
+			if z == "lane" {
+				c.lane = lane
+			}
+		}
+	}
+	if v, ok := toU64(a["combatPosition"]); ok {
+		c.position = int(v)
+	}
 }

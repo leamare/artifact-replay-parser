@@ -570,10 +570,18 @@ func decodeTraceFields(msg []byte, name string) map[string]any {
 			break
 		}
 		key := "f" + itoa(f.Num)
+		named := false
 		if names != nil {
 			if n, ok := names[f.Num]; ok {
 				key = n
+				named = true
 			}
+		}
+		// On a classified trace, a field the proto doesn't define is a field-path
+		// / delta-trailer over-read (e.g. the spurious f12), not real data — drop
+		// it. Keep unnamed fields for UnknownTrace/unclassified, where they help.
+		if !named && name != "" && name != "UnknownTrace" {
+			continue
 		}
 		switch f.Wire {
 		case wireVarint, wireI32, wireI64:
