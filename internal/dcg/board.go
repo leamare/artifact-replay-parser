@@ -16,14 +16,20 @@ type BoardCard struct {
 	Position int `json:"position,omitempty"`
 	// AttackTarget is the object id this unit currently attacks; the arrow
 	// direction (0 straight/tower, 1..) qualifies it.
-	AttackTarget   uint64         `json:"attackTarget,omitempty"`
-	ArrowDirection *uint64        `json:"arrowDirection,omitempty"`
-	Flags          map[string]any `json:"flags,omitempty"`
+	AttackTarget   uint64  `json:"attackTarget,omitempty"`
+	ArrowDirection *uint64 `json:"arrowDirection,omitempty"`
+	// ControlledBy is the object id of the card that owns this one when the
+	// owner is another game object (an improvement/hero that spawned it) rather
+	// than a player. The card is still grouped under that object's real player.
+	ControlledBy uint64         `json:"controlledBy,omitempty"`
+	Flags        map[string]any `json:"flags,omitempty"`
 }
 
-// PlayerBoard is one player's side of the snapshot.
+// PlayerBoard is one player's side of the snapshot. Player 0 and 1 are the two
+// contestants; player 2 is the server-side staging owner (neutral units being
+// prepared for assignment).
 type PlayerBoard struct {
-	Player    uint32          `json:"player"`
+	Player    uint64          `json:"player"`
 	Hand      []*BoardCard    `json:"hand"`
 	ItemDeck  []*BoardCard    `json:"itemDeck,omitempty"`
 	Graveyard []*BoardCard    `json:"graveyard"`
@@ -44,7 +50,7 @@ type BoardSnapshot struct {
 type trackedCard struct {
 	objectID  uint64
 	cardID    uint32
-	owner     uint32
+	owner     uint64 // a player id (0/1/2) or, for spawned units, the owning object id
 	hasOwner  bool
 	zone      string // deck|hand|lane|graveyard|fountain|spellStack|effects|shop|itemDeck
 	lane      int    // 1..3 when zone == "lane"
@@ -94,7 +100,27 @@ func (bt *BoardTracker) Learn(ob Object) {
 		c.cardID = ob.TemplateCardID
 	}
 	if !c.hasOwner && ob.OwnerID != nil {
-		c.owner, c.hasOwner = *ob.OwnerID, true
+		c.owner, c.hasOwner = uint64(*ob.OwnerID), true
+	}
+	// Full states carry each object's authoritative zone/lane/position; use them
+	// to place cards the trace stream never explicitly moved (e.g. cards sitting
+	// in hand, which have no draw trace in some replays).
+	for _, at := range ob.Attributes {
+		switch at.Name {
+		case "zoneId":
+			if z, lane, ok := gameZone(at.Value); ok {
+				c.zone = z
+				if lane != 0 {
+					c.lane = lane
+				}
+			}
+		case "laneId":
+			if at.Value >= 1 && at.Value <= 3 {
+				c.lane = int(at.Value)
+			}
+		case "combatPosition":
+			c.position = int(at.Value)
+		}
 	}
 }
 
@@ -111,7 +137,7 @@ func (bt *BoardTracker) Apply(tr Trace) {
 			c.cardID = uint32(v)
 		}
 		if v, ok := f("owner_id"); ok {
-			c.owner, c.hasOwner = uint32(v), true
+			c.owner, c.hasOwner = v, true
 		}
 		if v, ok := f("is_item"); ok && v != 0 {
 			c.zone = "itemDeck"
@@ -127,20 +153,20 @@ func (bt *BoardTracker) Apply(tr Trace) {
 			c.cardID = uint32(v)
 		}
 		if v, ok := f("owner_id"); ok {
-			c.owner, c.hasOwner = uint32(v), true
+			c.owner, c.hasOwner = v, true
 		}
 		bt.setFlag(c, "revealed", true)
 	case "CardDrawn", "CardMovedToHand", "CardBought":
 		c := bt.get(tr.ObjectID)
 		c.zone = "hand"
 		if v, ok := f("owner_id"); ok {
-			c.owner, c.hasOwner = uint32(v), true
+			c.owner, c.hasOwner = v, true
 		}
 	case "CardMovedToDeck":
 		c := bt.get(tr.ObjectID)
 		c.zone = "deck"
 		if v, ok := f("owner_id"); ok {
-			c.owner, c.hasOwner = uint32(v), true
+			c.owner, c.hasOwner = v, true
 		}
 	case "CardMovedToDeployment":
 		c := bt.get(tr.ObjectID)
@@ -158,7 +184,7 @@ func (bt *BoardTracker) Apply(tr Trace) {
 			c.position = int(v)
 		}
 		if v, ok := f("owner_id"); ok {
-			c.owner, c.hasOwner = uint32(v), true
+			c.owner, c.hasOwner = v, true
 		}
 	case "UnitChangedCombatPosition":
 		c := bt.get(tr.ObjectID)
@@ -178,7 +204,16 @@ func (bt *BoardTracker) Apply(tr Trace) {
 		}
 	case "UnitLeavingCombat":
 		c := bt.get(tr.ObjectID)
-		if c.zone == "lane" {
+		// The trace names the destination zone directly (graveyard when a unit
+		// dies out of combat, fountain when a hero returns, improvements, …).
+		if v, ok := f("new_zone_id"); ok {
+			if z, lane, ok := gameZone(v); ok {
+				c.zone = z
+				if lane != 0 {
+					c.lane = lane
+				}
+			}
+		} else if c.zone == "lane" {
 			c.zone = "other" // destination arrives with the following move trace
 		}
 	case "CardMovedToGraveyard", "CardDiscarded", "ImprovementDestroyed":
@@ -220,7 +255,7 @@ func (bt *BoardTracker) Apply(tr Trace) {
 			c.lane = int(v)
 		}
 		if v, ok := f("owner_id"); ok {
-			c.owner, c.hasOwner = uint32(v), true
+			c.owner, c.hasOwner = v, true
 		}
 	case "ShoppingCardAppeared":
 		bt.get(tr.ObjectID).zone = "shop"
@@ -243,8 +278,8 @@ func (bt *BoardTracker) Apply(tr Trace) {
 // Snapshot renders the current board, grouped per owner and zone. turn labels
 // the snapshot.
 func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
-	byPlayer := map[uint32]*PlayerBoard{}
-	pb := func(owner uint32) *PlayerBoard {
+	byPlayer := map[uint64]*PlayerBoard{}
+	pb := func(owner uint64) *PlayerBoard {
 		p := byPlayer[owner]
 		if p == nil {
 			p = &PlayerBoard{
@@ -263,6 +298,9 @@ func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
 		if c.cardID == 0 && c.zone == "deck" {
 			continue // control objects never materialised as cards
 		}
+		if isPathMarker(c.cardID) {
+			continue // 1002..1005 are attack-direction target markers, not units
+		}
 		bc := &BoardCard{
 			ObjectID: c.objectID, CardID: c.cardID, CardName: CardName(c.cardID),
 			Position: c.position, AttackTarget: c.target, ArrowDirection: c.arrow,
@@ -279,7 +317,12 @@ func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
 			}
 			bc.Flags["respawnIn"] = respawnIn
 		}
-		p := pb(c.owner)
+		// Resolve the owner to a real player. Spawned units carry the objectId of
+		// the card that created them (an improvement/hero) as their owner; follow
+		// that chain to the controlling player and record the immediate owner.
+		player, controller := bt.resolveOwner(c.owner)
+		bc.ControlledBy = controller
+		p := pb(player)
 		switch c.zone {
 		case "hand":
 			p.Hand = append(p.Hand, bc)
@@ -316,6 +359,32 @@ func (bt *BoardTracker) Snapshot(turn int) *BoardSnapshot {
 	return st
 }
 
+// maxPlayerID bounds real player ids: 0 and 1 are the contestants, 2 is the
+// server staging owner. Anything larger is an object id (a spawning card).
+const maxPlayerID = 2
+
+// resolveOwner walks an owner up to a real player. When a card's owner is the
+// object id of the card that spawned it, the chain is followed to that card's
+// player; controller is the immediate object owner (0 when the owner was
+// already a player). Cycles and dangling ids are bounded/tolerated.
+func (bt *BoardTracker) resolveOwner(owner uint64) (player, controller uint64) {
+	o := owner
+	for i := 0; o > maxPlayerID && i < 8; i++ {
+		ctrl := bt.cards[o]
+		if ctrl == nil || !ctrl.hasOwner || ctrl.owner == o {
+			break
+		}
+		controller = o
+		o = ctrl.owner
+	}
+	return o, controller
+}
+
+// isPathMarker reports whether a card id is one of the attack-direction target
+// markers (1002 left, 1003 forward, 1004 right, 1005 forward-2) the engine
+// spawns for combat targeting rather than a real unit.
+func isPathMarker(cardID uint32) bool { return cardID >= 1002 && cardID <= 1005 }
+
 func addOther(p *PlayerBoard, zone string, bc *BoardCard) {
 	if p.Other == nil {
 		p.Other = map[string][]*BoardCard{}
@@ -327,39 +396,53 @@ func sortCards(cs []*BoardCard) {
 	sort.Slice(cs, func(a, b int) bool { return cs[a].ObjectID < cs[b].ObjectID })
 }
 
-// classicZoneNames maps a 1.0 zoneId to a board zone. The enum is inferred from
-// the container zone strings; deck/hand/lanes/graveyard/fountain are the
-// gameplay zones. Unknown ids leave the card in its current zone.
-func classicZone(id uint64) (string, int) {
+// gameZone maps the game's EGameZone (DCG_ZONE_*) enum to a board zone. Values
+// are the declaration order of the DCG_ZONE_* strings in libclient (INVALID=0,
+// GRAVEYARD=1, DECK=2, HAND=3, FOUNTAIN=4, DEPLOYMENT=5, COMBAT=6,
+// SPELL_STACK=7, SHOP=8, EFFECTS=9, IMPROVEMENTS=10, LIFEBOAT=11), verified
+// against the trace data (a unit leaving combat reports new_zone_id=1=graveyard
+// / 4=fountain). DEPLOYMENT and COMBAT both place a unit in a lane, with the
+// lane number carried by laneId. Returns ok=false for INVALID/unknown so the
+// card keeps its current zone.
+func gameZone(id uint64) (zone string, lane int, ok bool) {
 	switch id {
-	case 0:
-		return "deck", 0
 	case 1:
-		return "hand", 0
-	case 2, 3, 4:
-		return "lane", int(id - 1) // lanes 1..3
-	case 5:
-		return "graveyard", 0
-	case 6:
-		return "fountain", 0
+		return "graveyard", 0, true
+	case 2:
+		return "deck", 0, true
+	case 3:
+		return "hand", 0, true
+	case 4:
+		return "fountain", 0, true
+	case 5, 6:
+		return "lane", 0, true // deployment / combat; lane from laneId
 	case 7:
-		return "shop", 0
+		return "spellStack", 0, true
+	case 8:
+		return "shop", 0, true
+	case 9, 10:
+		return "effects", 0, true // effects / improvements
+	case 11:
+		return "fountain", 0, true // lifeboat ~ holding area
 	}
-	return "", 0
+	return "", 0, false
 }
 
 // placeFromAttrs sets a card's zone/owner/position from its instance attributes.
 func (bt *BoardTracker) placeFromAttrs(c *trackedCard, a map[string]any) {
 	if v, ok := toU64(a["ownerId"]); ok {
-		c.owner, c.hasOwner = uint32(v), true
+		c.owner, c.hasOwner = v, true
 	}
 	if v, ok := toU64(a["zoneId"]); ok {
-		if z, lane := classicZone(v); z != "" {
+		if z, lane, ok := gameZone(v); ok {
 			c.zone = z
-			if z == "lane" {
+			if lane != 0 {
 				c.lane = lane
 			}
 		}
+	}
+	if v, ok := toU64(a["laneId"]); ok && v >= 1 && v <= 3 {
+		c.lane = int(v)
 	}
 	if v, ok := toU64(a["combatPosition"]); ok {
 		c.position = int(v)

@@ -3,6 +3,7 @@ package dcg
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -111,7 +112,9 @@ func TestParseAll(t *testing.T) {
 		if r.Version == VersionUnknown {
 			t.Errorf("%s: unknown version", e.Name())
 		}
-		if r.MatchID == 0 {
+		// Locally-generated replays (bot/practice, "replay_<n>_*.dcg") carry no
+		// GC match id; only GC-served replays are guaranteed one.
+		if r.MatchID == 0 && !strings.HasPrefix(e.Name(), "replay_") {
 			t.Errorf("%s: zero match id", e.Name())
 		}
 		game := BuildGame(e.Name(), r, BuildOptions{})

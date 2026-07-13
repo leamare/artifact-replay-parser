@@ -99,6 +99,17 @@ var knownTraceTypeIDs2 = map[uint64]string{
 	2:   "CardKilled",
 	4:   "TowerKilled",           // {owner, is_combat, is_defeat_for_owner, damageContributors}
 	138: "CardMovedToSpellStack", // CARD_PLAY; empty (spell entering the stack)
+
+	// Ids confirmed against a matched console object-trace log (a 1.0-Classic
+	// botmatch replay + its "DCG Game Object Traces" dump; see
+	// test-replays/logs-10/replay_0_1684698460.dcg.txt), aligned on objectId.
+	// The 1.0-Classic build renumbers the trace enum vs 2.0 Foundry, so only ids
+	// that do NOT occur in the 2.0 stream are added here (76 e.g. is CardPlayed
+	// in 1.0 but DamageAttempted in 2.0 — left out to avoid cross-build clashes).
+	90:  "UnitTargeted",         // 1.0; 2.0 uses 92
+	142: "PreviewDamageChanged", // 1.0; 2.0 uses 144
+	26:  "PathingCardChanged",   // 1.0; combat pathing target update
+	100: "ItemEquipped",         // 1.0
 }
 
 // learnedTypeIDs accumulates type-id -> name across every payload parsed in the
@@ -140,18 +151,141 @@ func setTraceTypeID(id uint64, name string) {
 	learnedTypeIDsMu.Unlock()
 }
 
+// Script-block Begin/End type ids for the replay currently being processed. The
+// 1.0-Classic and 2.0-Foundry builds number the trace enum differently (1.0:
+// Begin=106/End=108; 2.0: Begin=108/End=110), so the roles can't be hard-coded.
+// They are detected per-replay from the block nesting (see detectScriptBlocks)
+// and applied as a relabel in ExtractTraces. Zero means "trust the type-id table
+// as-is" (the 2.0 case, where the table already has 108/110 right).
+var (
+	blockIDMu    sync.Mutex
+	blockBeginID uint64
+	blockEndID   uint64
+)
+
+func setBlockIDs(begin, end uint64) {
+	blockIDMu.Lock()
+	blockBeginID, blockEndID = begin, end
+	blockIDMu.Unlock()
+}
+
+func blockIDs() (begin, end uint64) {
+	blockIDMu.Lock()
+	defer blockIDMu.Unlock()
+	return blockBeginID, blockEndID
+}
+
+// isBlockCandidate reports whether a trace looks like a script-block marker: no
+// subject object, and either a resolved script_type or a small integer field 1
+// in the EScriptBlockType range. Both Begin and End records share this shape;
+// telling them apart is done by nesting, not by shape.
+func isBlockCandidate(tr Trace) bool {
+	if tr.ObjectID != 0 {
+		return false
+	}
+	if tr.Type == "ScriptBlockBegin" || tr.Type == "ScriptBlockEnd" {
+		return true
+	}
+	if _, ok := tr.Fields["script_type"]; ok {
+		return true
+	}
+	if len(tr.Fields) <= 2 {
+		if v, ok := toU64(tr.Fields["f1"]); ok && v < 64 {
+			return true
+		}
+	}
+	return false
+}
+
+// blockObs is one script-block marker seen during detection: its type id and a
+// key identifying the block instance (the EScriptBlockType, comparable across
+// the Begin and End of the same block).
+type blockObs struct {
+	typeID uint64
+	key    int
+}
+
+// assignBlockRoles picks the two script-block type ids and decides which is
+// Begin vs End. Raw depth-nesting is unreliable here because full-state
+// refreshes re-emit block markers out of order; instead we pair markers by
+// their EScriptBlockType: the first time a given block-type is seen it is an
+// open (its type id votes Begin), the matching second sighting is the close.
+// The type id with more open-votes is Begin. Returns 0,0 when there aren't two
+// distinct block ids (2.0, where the type-id table already resolves 108/110).
+func assignBlockRoles(seq []blockObs) (begin, end uint64) {
+	freq := map[uint64]int{}
+	for _, o := range seq {
+		freq[o.typeID]++
+	}
+	if len(freq) < 2 {
+		return 0, 0
+	}
+	// two most frequent block type ids
+	var a, b uint64
+	var na, nb int
+	for id, n := range freq {
+		if n > na {
+			b, nb, a, na = a, na, id, n
+		} else if n > nb {
+			b, nb = id, n
+		}
+	}
+	open := map[int]int{}
+	beginVotes := map[uint64]int{}
+	for _, o := range seq {
+		if o.typeID != a && o.typeID != b {
+			continue
+		}
+		if open[o.key] == 0 {
+			open[o.key]++
+			beginVotes[o.typeID]++
+		} else {
+			open[o.key]--
+		}
+	}
+	if beginVotes[a] >= beginVotes[b] {
+		return a, b
+	}
+	return b, a
+}
+
+// blockTypeKey returns the EScriptBlockType of a block-candidate trace as an int
+// (comparable across a Begin/End pair), or -1 if none. During detection the End
+// side is still unresolved and carries the raw enum in field 1; the Begin side
+// (seeded as 108 by the 2.0 table) carries the resolved script_type name.
+func blockTypeKey(tr Trace) int {
+	if s, ok := tr.Fields["script_type"].(string); ok {
+		if k := scriptTypeIndex(s); k >= 0 {
+			return k
+		}
+	}
+	if v, ok := toU64(tr.Fields["f1"]); ok {
+		return int(v)
+	}
+	return -1
+}
+
 // WarmTraceTable runs a learning pass over every board-state payload so the
-// type-id table is fully populated before any output is emitted. Without this,
-// records early in the stream would miss names that are only shape-learned from
-// later full states (extraction is otherwise single-pass).
+// type-id table is fully populated before any output is emitted, and detects
+// this replay's script-block Begin/End type ids. Without the warm pass, records
+// early in the stream would miss names that are only shape-learned from later
+// full states (extraction is otherwise single-pass).
 func WarmTraceTable(r *Reader) {
+	setBlockIDs(0, 0) // no relabel during the learning/detection pass
+	var seq []blockObs
 	for _, rec := range r.Records {
 		if rec.Type != MsgBoardGameState {
 			continue
 		}
 		bs, _ := DecodeBoardState(rec.Payload)
-		ExtractTraces(bs.Payload) // side effect: learnTypeID
+		for _, tr := range ExtractTraces(bs.Payload) { // side effect: learnTypeID
+			if isBlockCandidate(tr) {
+				seq = append(seq, blockObs{typeID: tr.TypeID, key: blockTypeKey(tr)})
+			}
+		}
 	}
+	begin, end := assignBlockRoles(seq)
+	setBlockIDs(begin, end)
 }
 
 // ExtractTraces pulls every trace record out of a board-state payload (full or
@@ -276,6 +410,15 @@ func ExtractTraces(payload []byte) []Trace {
 				traces = append(traces, r.tr)
 			}
 			continue
+		}
+		// Per-replay block relabel: fixes builds whose enum numbers Begin/End
+		// differently from the seeded 2.0 table (1.0 swaps 106/108).
+		if bb, be := blockIDs(); bb != 0 {
+			if r.tr.TypeID == bb {
+				name = "ScriptBlockBegin"
+			} else if r.tr.TypeID == be {
+				name = "ScriptBlockEnd"
+			}
 		}
 		r.tr.Type = name
 		if len(r.msg) > 0 { // fieldless (empty) traces carry no fields

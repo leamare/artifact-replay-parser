@@ -89,6 +89,23 @@ var scriptBlockNames = map[uint64]string{
 	32: "HACKED_EFFECT", 33: "EXPORT_CARD_SET_TO_IMAGES", 34: "GAME_OVER", 35: "TOKEN_DEPLOYED",
 }
 
+// scriptTypeIndexMap is the reverse of scriptBlockNames (name -> enum value).
+var scriptTypeIndexMap = func() map[string]int {
+	m := make(map[string]int, len(scriptBlockNames))
+	for k, v := range scriptBlockNames {
+		m[v] = int(k)
+	}
+	return m
+}()
+
+// scriptTypeIndex returns the EScriptBlockType enum value for a name, or -1.
+func scriptTypeIndex(name string) int {
+	if v, ok := scriptTypeIndexMap[name]; ok {
+		return v
+	}
+	return -1
+}
+
 // ActionType is CMsgGameReplayActionMarker.EActionType.
 type ActionType int
 
