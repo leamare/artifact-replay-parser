@@ -39,6 +39,7 @@ func main() {
 	traces := flag.Bool("traces", true, "include the per-turn decoded trace log in JSON")
 	cards := flag.String("cards", "", "path to a card-name table (JSON {\"<id>\":\"<name>\"}) for naming cards")
 	traceTypes := flag.String("tracetypes", "", "path to a trace-type-id table (JSON {\"<typeId>\":\"<CTraceMsg name>\"})")
+	gcDir := flag.String("gc", "", "directory of GC blob responses (<matchId>.json) to join match metadata into .info.json")
 	reportOut := flag.String("report", "", "write a trace-type coverage report (JSON) aggregated over all inputs")
 	templateOut := flag.String("tracetemplate", "", "write a -tracetypes metadata template (JSON) to fill in")
 	summary := flag.Bool("summary", false, "print a one-line summary per file to stderr")
@@ -65,6 +66,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "tracetypes: %v\n", err)
 		}
 	}
+	dcg.SetGCDir(*gcDir)
 
 	reportMode := *reportOut != "" || *templateOut != ""
 

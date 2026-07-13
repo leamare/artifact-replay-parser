@@ -194,6 +194,7 @@ type DemoInfo struct {
 	DeckCodes        []string       `json:"deckCodes,omitempty"`        // full deck codes (repaired)
 	PartialDeckCodes []string       `json:"partialDeckCodes,omitempty"` // current-deck codes (no heroes post-flop)
 	GameData         *GameData      `json:"gameData,omitempty"`         // match/game mode, gauntlet
+	GC               *GCMatch       `json:"gc,omitempty"`               // joined GC response metadata
 	RecordCounts     map[string]int `json:"recordCounts"`
 	RecordTotal      int            `json:"recordTotal"`
 	Note             string         `json:"note,omitempty"`
@@ -238,6 +239,7 @@ func BuildDemoInfo(file string, r *Reader) *DemoInfo {
 		RecordCounts:     map[string]int{},
 		RecordTotal:      len(r.Records),
 		Note:             r.Note,
+		GC:               LoadGCMatch(gcDir, r.MatchID),
 	}
 	personas := ScavengePersonas(r.buf)
 	roster := map[uint32]uint32{} // user_id -> player_index
