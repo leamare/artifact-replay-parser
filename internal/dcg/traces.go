@@ -110,6 +110,7 @@ var knownTraceTypeIDs2 = map[uint64]string{
 	142: "PreviewDamageChanged", // 1.0; 2.0 uses 144
 	26:  "PathingCardChanged",   // 1.0; combat pathing target update
 	100: "ItemEquipped",         // 1.0
+	72:  "TriggerTriggered",     // 1.0; {source_obj, source_effect_card, count}
 }
 
 // learnedTypeIDs accumulates type-id -> name across every payload parsed in the
@@ -138,7 +139,24 @@ func learnTypeID(id uint64, name string) {
 	learnedTypeIDsMu.Unlock()
 }
 
+// classicTypeIDs are 1.0-Classic-only trace ids that collide with a different
+// 2.0 meaning, so they can't go in the shared table. Applied only when the
+// replay is detected as 1.0 (classicBuild). 76 is CardPlayed in 1.0 but
+// DamageAttempted in 2.0.
+var classicTypeIDs = map[uint64]string{
+	76: "CardPlayed",
+}
+
+// classicBuild is set true during WarmTraceTable when the replay uses the 1.0
+// trace enum (ScriptBlockBegin=106), enabling the classicTypeIDs overrides.
+var classicBuild bool
+
 func lookupTypeID(id uint64) string {
+	if classicBuild {
+		if n, ok := classicTypeIDs[id]; ok {
+			return n
+		}
+	}
 	learnedTypeIDsMu.Lock()
 	defer learnedTypeIDsMu.Unlock()
 	return learnedTypeIDs[id]
@@ -286,6 +304,8 @@ func WarmTraceTable(r *Reader) {
 	}
 	begin, end := assignBlockRoles(seq)
 	setBlockIDs(begin, end)
+	r.BlockBeginID = begin
+	classicBuild = begin == 106
 }
 
 // ExtractTraces pulls every trace record out of a board-state payload (full or
@@ -742,9 +762,15 @@ func decodeTraceFields(msg []byte, name string) map[string]any {
 				appendField(out, key, f.V)
 			}
 		case wireBytes:
-			if isAttributeField(key) {
+			switch {
+			case isAttributeBlobField(key):
+				// A serialized attribute list (card template/stats, an entering
+				// improvement's card, an applied effect's properties): decode
+				// every token→value entry, not just the fixed card-instance keys.
+				appendField(out, key, attributeBlobToJSON(f.Bytes))
+			case isAttributeField(key):
 				appendField(out, key, attributesToJSON(decodeAttributes(f.Bytes)))
-			} else {
+			default:
 				appendField(out, key, decodeBytesValue(f.Bytes, 4))
 			}
 		}
@@ -757,6 +783,37 @@ func decodeTraceFields(msg []byte, name string) map[string]any {
 // attributes rather than showing as raw bytes.
 func isAttributeField(key string) bool {
 	return key == "card_instance_attributes" || key == "card_calculated_effects"
+}
+
+// isAttributeBlobField reports whether a trace field carries a full serialized
+// attribute list (decoded token-by-token via attributeBlobToJSON): the card
+// template blob, an entering improvement's card, and applied-effect properties.
+func isAttributeBlobField(key string) bool {
+	switch key {
+	case "card_template_data", "card", "properties":
+		return true
+	}
+	return false
+}
+
+// attributeBlobToJSON decodes a serialized attribute list (token→value tree,
+// the same codec as the board state) into a named map: known tokens by name,
+// unknown ones by their #hex token; scalar values as ints, blob/string values
+// as {hex,len}.
+func attributeBlobToJSON(b []byte) map[string]any {
+	out := map[string]any{}
+	for _, f := range decodeCodecMap(b) {
+		name := f.Name
+		if name == "" {
+			name = hexToken(f.Key)
+		}
+		if f.Bytes != nil {
+			out[name] = decodeBytesValue(f.Bytes, 4)
+		} else {
+			out[name] = f.Int
+		}
+	}
+	return out
 }
 
 // signedField reports whether a field holds a signed value stored in an

@@ -21,7 +21,7 @@ import (
 func WriteTrace(r *Reader) string {
 	WarmTraceTable(r)
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s  match %d  (%d records)\n", r.Version, r.MatchID, len(r.Records))
+	fmt.Fprintf(&b, "# %s  match %d  (%d records)\n", r.GameVersionLabel(), r.MatchID, len(r.Records))
 	if !r.ContainerDecoded {
 		fmt.Fprintf(&b, "# %s\n", r.Note)
 		return b.String()

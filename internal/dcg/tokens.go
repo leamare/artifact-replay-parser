@@ -108,6 +108,9 @@ var tokenWordlist = []string{
 	// stats / attributes
 	"health", "maxHealth", "currentHealth", "remainingHealth", "mana", "maxMana",
 	"attack", "armor", "gold", "charges", "maxCharges", "manaCost", "goldCost",
+	// card-attribute names recovered from the VPK card data (murmur-hashed keys
+	// seen in card_template_data / card / properties attribute blobs)
+	"hitPoints", "attackPower", "isInPlay", "orderCardEnteredHand",
 	"siege", "retaliate", "cleave", "bounty", "level",
 	// position / location
 	"combatPosition", "combatTarget", "position", "arrowDirection", "slot",

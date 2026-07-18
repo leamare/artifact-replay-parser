@@ -1,5 +1,7 @@
 package dcg
 
+import "time"
+
 // Typed, named decoding of each known EDCGGameMessages payload for the packet
 // dump. Unlike the generic fN decoder, this maps fields to their proto names
 // and enums to their string values. Unknown message types fall back to the
@@ -16,11 +18,28 @@ func TypedPacketData(rec Record) map[string]any {
 		return handoffData(rec.Payload)
 	case MsgVenchatoquist:
 		return venchatData(rec.Payload)
+	case MsgServerChat, MsgClientChat:
+		return chatData(rec.Payload)
 	case MsgConnectionStatus:
 		return connectionStatusData(rec.Payload)
 	default:
 		return DecodeGeneric(rec.Payload)
 	}
+}
+
+// chatData names the ServerToClientChatMsg fields (user_id, persona, text,
+// time). Falls back to a generic decode when the nested envelope is absent.
+func chatData(p []byte) map[string]any {
+	c, ok := DecodeChatMsg(p)
+	if !ok {
+		return DecodeGeneric(p)
+	}
+	d := map[string]any{"user_id": c.UserID, "persona": c.Persona, "text": c.Text}
+	if c.Time != 0 {
+		d["time"] = c.Time
+		d["date"] = time.Unix(int64(c.Time), 0).UTC().Format("2006-01-02 15:04:05 UTC")
+	}
+	return d
 }
 
 // CMsgGameReplayActionMarker { action(1) }

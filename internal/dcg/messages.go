@@ -287,3 +287,42 @@ func first(m map[int][]Field, num int) (Field, bool) {
 	}
 	return Field{}, false
 }
+
+// ChatMsg is a decoded ServerToClientChatMsg. The wire shape is nested:
+// f1{ f1=<seq/id>, f2{ f2=user_id, f3=text, f4=persona, f6=unix_time } }.
+type ChatMsg struct {
+	UserID  uint32 `json:"user_id"`
+	Persona string `json:"persona,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Time    uint32 `json:"time,omitempty"`
+}
+
+// DecodeChatMsg parses a ServerToClientChatMsg payload. ok is false when the
+// nested envelope isn't present.
+func DecodeChatMsg(p []byte) (ChatMsg, bool) {
+	var c ChatMsg
+	m, _ := fieldMap(p)
+	f1, ok := first(m, 1)
+	if !ok {
+		return c, false
+	}
+	m1, _ := fieldMap(f1.Bytes)
+	f2, ok := first(m1, 2)
+	if !ok {
+		return c, false
+	}
+	m2, _ := fieldMap(f2.Bytes)
+	if v, ok := first(m2, 2); ok {
+		c.UserID = uint32(v.V)
+	}
+	if v, ok := first(m2, 3); ok {
+		c.Text = string(v.Bytes)
+	}
+	if v, ok := first(m2, 4); ok {
+		c.Persona = string(v.Bytes)
+	}
+	if v, ok := first(m2, 6); ok {
+		c.Time = uint32(v.V)
+	}
+	return c, c.UserID != 0 || c.Persona != ""
+}
