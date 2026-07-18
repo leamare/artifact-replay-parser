@@ -73,7 +73,7 @@ func BuildGame(file string, r *Reader, opt BuildOptions) *Game {
 	includeTraces := opt.IncludeTraces || opt.IncludeBoard || opt.IncludeObjects
 	g := &Game{
 		File:             file,
-		Version:          r.Version.String(),
+		Version:          r.GameVersionLabel(),
 		MatchID:          r.MatchID,
 		ContainerDecoded: r.ContainerDecoded,
 		Note:             r.Note,

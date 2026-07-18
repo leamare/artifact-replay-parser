@@ -182,7 +182,8 @@ type DemoInfo struct {
 	File             string         `json:"file"`
 	Version          string         `json:"version"`
 	ContainerVersion uint32         `json:"containerVersion"`
-	CRC              uint32         `json:"crc,omitempty"` // 1.0 header checksum
+	Compressed       bool           `json:"compressed,omitempty"` // whole-file Snappy (GC-served)
+	CRC              uint32         `json:"crc,omitempty"`        // 1.0 header checksum
 	MatchID          uint32         `json:"matchId"`
 	GameMode         *uint32        `json:"gameMode,omitempty"`
 	PlayerCount      *uint32        `json:"playerCount,omitempty"`
@@ -230,10 +231,12 @@ type DeckCard struct {
 
 // BuildDemoInfo assembles the summary from a parsed container.
 func BuildDemoInfo(file string, r *Reader) *DemoInfo {
+	WarmTraceTable(r) // sets BlockBeginID for the 1.0/2.0 version label
 	di := &DemoInfo{
 		File:             file,
-		Version:          r.Version.String(),
+		Version:          r.GameVersionLabel(),
 		ContainerVersion: r.ContainerVersion,
+		Compressed:       r.Compressed,
 		CRC:              r.CRC,
 		MatchID:          r.MatchID,
 		RecordCounts:     map[string]int{},
@@ -260,6 +263,18 @@ func BuildDemoInfo(file string, r *Reader) *DemoInfo {
 			}
 			if ts := venchatTimestamp(uint64(c.LineID)); ts != 0 && (di.MatchTime == 0 || ts < di.MatchTime) {
 				di.MatchTime = ts
+			}
+		case MsgServerChat, MsgClientChat:
+			// Chat messages carry a clean persona + user id + unix timestamp;
+			// they're the most reliable participant/date source (esp. for GC
+			// archive replays that lack a decodable Handoff roster).
+			if c, ok := DecodeChatMsg(rec.Payload); ok {
+				if c.UserID != 0 && c.Persona != "" {
+					personas[c.UserID] = c.Persona
+				}
+				if c.Time != 0 && (di.MatchTime == 0 || c.Time < di.MatchTime) {
+					di.MatchTime = c.Time
+				}
 			}
 		case MsgInitialGameState:
 			di.Decks = append(di.Decks, decodeDecks(rec.Payload)...)
@@ -322,12 +337,55 @@ func BuildDemoInfo(file string, r *Reader) *DemoInfo {
 		seen[uid] = true
 	}
 	for uid, name := range personas { // personas with no roster entry (1.0 has no roster)
-		if !seen[uid] {
+		// uid 0/1/2 are player-index/server placeholders, not accounts; and the
+		// raw byte-scavenge occasionally yields junk names (" S"). Keep only real
+		// participants.
+		if !seen[uid] && uid > 2 && validPersona(name) {
 			di.Players = append(di.Players, PlayerInfo{UserID: uid, Persona: name})
+			seen[uid] = true
 		}
 	}
-	sort.Slice(di.Players, func(i, j int) bool { return di.Players[i].PlayerIndex < di.Players[j].PlayerIndex })
+	// When the replay itself yields no participants (GC-archive replays without
+	// chat), fall back to the GC roster (player1/player2), naming them from any
+	// chat persona seen for that account.
+	if di.GC != nil {
+		for i, uid64 := range []int64{di.GC.Player1, di.GC.Player2} {
+			uid := uint32(uid64)
+			if uid == 0 || seen[uid] {
+				continue
+			}
+			di.Players = append(di.Players, PlayerInfo{
+				UserID: uid, PlayerIndex: uint32(i), Persona: personas[uid],
+			})
+			seen[uid] = true
+		}
+		if di.MatchTime == 0 && di.GC.StartTime > 0 {
+			di.MatchTime = uint32(di.GC.StartTime)
+			di.MatchDate = time.Unix(di.GC.StartTime, 0).UTC().Format("2006-01-02 15:04:05 UTC")
+		}
+	}
+	sort.Slice(di.Players, func(i, j int) bool {
+		if di.Players[i].PlayerIndex != di.Players[j].PlayerIndex {
+			return di.Players[i].PlayerIndex < di.Players[j].PlayerIndex
+		}
+		return di.Players[i].UserID < di.Players[j].UserID
+	})
 	return di
+}
+
+// validPersona rejects junk names from the raw persona scavenge: a real persona
+// is a printable string of at least two non-space characters.
+func validPersona(name string) bool {
+	n := 0
+	for _, c := range name {
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+		if c != ' ' {
+			n++
+		}
+	}
+	return n >= 2
 }
 
 // scanChatTimestamps finds the earliest chat wall-clock stamp in the raw
