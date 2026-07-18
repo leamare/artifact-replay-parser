@@ -111,6 +111,10 @@ var knownTraceTypeIDs2 = map[uint64]string{
 	26:  "PathingCardChanged",   // 1.0; combat pathing target update
 	100: "ItemEquipped",         // 1.0
 	72:  "TriggerTriggered",     // 1.0; {source_obj, source_effect_card, count}
+	// 1.0 shopping ids (absent in 2.0), identified via the matched console log:
+	116: "ShoppingCardShuffled", // f1 = shop position; 2.0 uses a different id
+	120: "ShopAction",           // SHOPPING_UPDATE; empty
+	124: "ShopCardRemoved",      // SHOPPING_FINISHED; empty
 }
 
 // learnedTypeIDs accumulates type-id -> name across every payload parsed in the
@@ -822,7 +826,10 @@ func attributeBlobToJSON(b []byte) map[string]any {
 func signedField(key string) bool {
 	switch key {
 	case "old_combat_position", "new_combat_position", "combat_position",
-		"desired_combat_position", "old_arrow_direction", "arrow_direction":
+		"desired_combat_position", "old_arrow_direction", "arrow_direction",
+		"amount", "delta", "value_diff", "gold_delta":
+		// gold/charge/attribute deltas are signed (a refund or loss is negative,
+		// stored as a large unsigned varint, e.g. 2^64-3 == -3)
 		return true
 	}
 	return false
