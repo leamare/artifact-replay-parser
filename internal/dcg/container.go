@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/golang/snappy"
 )
 
 // Version identifies the replay generation.
@@ -32,6 +34,21 @@ const (
 	VersionClassic         // 1.0, .dcg
 	VersionFoundry         // 2.0, .dem
 )
+
+// GameVersionLabel names the game version (1.0 Classic vs 2.0 Foundry). Both
+// use the same version-7 spelled container, so they're told apart by the trace
+// enum: 1.0 numbers ScriptBlockBegin=106, 2.0 uses 108. Requires WarmTraceTable
+// to have run (which sets BlockBeginID); falls back to the container label
+// otherwise.
+func (r *Reader) GameVersionLabel() string {
+	switch r.BlockBeginID {
+	case 106:
+		return "1.0 (Classic)"
+	case 108:
+		return "2.0 (Foundry)"
+	}
+	return r.Version.String()
+}
 
 func (v Version) String() string {
 	switch v {
@@ -59,6 +76,8 @@ type Reader struct {
 	MatchID          uint32
 	CRC              uint32 // 1.0 only
 	ContainerVersion uint32 // the header version word (7 in all samples)
+	Compressed       bool   // the on-disk file was whole-file Snappy-compressed
+	BlockBeginID     uint64 // detected ScriptBlockBegin type id (106=1.0, 108=2.0)
 	Records          []Record
 	ContainerDecoded bool   // false for 1.0 until the bit-stream is reversed
 	Note             string // human-readable status (e.g. why records are empty)
@@ -83,7 +102,20 @@ func Parse(name string, buf []byte) (*Reader, error) {
 	if len(buf) < 12 {
 		return nil, errors.New("file too short to be a replay")
 	}
-	r := &Reader{buf: buf}
+	// GC-served replays (the archive) are whole-file Snappy-compressed: a
+	// snappy varint length prefix (which earlier looked like a "crc") followed
+	// by the compressed version-7 container. Game-native replays start with the
+	// raw version word (7) and are left as-is. Decompress transparently so the
+	// rest of the pipeline sees the spelled container in both cases.
+	compressed := false
+	if binary.LittleEndian.Uint32(buf) != 7 {
+		if dec, err := snappy.Decode(nil, buf); err == nil && len(dec) >= 12 &&
+			binary.LittleEndian.Uint32(dec) == 7 {
+			buf = dec
+			compressed = true
+		}
+	}
+	r := &Reader{buf: buf, Compressed: compressed}
 
 	v0 := binary.LittleEndian.Uint32(buf[0:])
 	v1 := binary.LittleEndian.Uint32(buf[4:])
