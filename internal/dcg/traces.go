@@ -143,12 +143,33 @@ func learnTypeID(id uint64, name string) {
 	learnedTypeIDsMu.Unlock()
 }
 
-// classicTypeIDs are 1.0-Classic-only trace ids that collide with a different
-// 2.0 meaning, so they can't go in the shared table. Applied only when the
-// replay is detected as 1.0 (classicBuild). 76 is CardPlayed in 1.0 but
-// DamageAttempted in 2.0.
+// classicTypeIDs is the authoritative 1.0-Classic trace-id → name table,
+// derived from a log-verified botmatch (test-replays/logs-10/…). The 1.0 enum
+// differs from 2.0 (e.g. 1.0 86=CardTemplateOperation / 28=ImprovementEnteringPlay,
+// whereas 2.0 numbers those differently), so for classic replays this table is
+// used verbatim instead of the 2.0-seeded learned table — the shared table
+// otherwise mis-learns ambiguous ids (86, 76, …) from delta-mangled diff-state
+// signatures. Ids absent here fall back to per-message signature classification.
 var classicTypeIDs = map[uint64]string{
-	76: "CardPlayed",
+	2: "CardKilled", 4: "TowerKilled", 14: "UnitChangedCombatPosition",
+	16: "UnitChangedCombatTarget", 22: "UnitEnteringCombat", 24: "UnitLeavingCombat",
+	26: "PathingCardChanged", 28: "ImprovementEnteringPlay", 30: "PreviewDeathResultChanged",
+	34: "CardTemplateOperation",
+	40: "CardMovedToDeployment", 48: "CardMovedToGraveyard", 50: "GainedAppliedEffectEx",
+	52: "LostAppliedEffectEx", 56: "AttributeValueChanged", 60: "CardRevealed",
+	62: "CardCreated", 64: "GoldEarned", 66: "GoldSpent", 68: "CardDuplicated",
+	54: "ContinuousAppliedEffectChangedEx", // trio with 50/52; f4={attr_token,value_diff}
+	72: "TriggerTriggered", 74: "TriggerTriggered", 76: "CardPlayed",
+	78: "UnitUserTargeted", 80: "EffectProcced", 82: "PreviewDeathResultChanged",
+	86: "CardTemplateOperation", 90: "UnitTargeted", 92: "UnitTargeted",
+	94: "UnitLocked", 98: "CardPlayed",
+	96: "TowerManaRestored", 100: "ItemEquipped", 102: "UnitCondemned",
+	106: "ScriptBlockBegin", 108: "ScriptBlockEnd", 110: "ScriptBlockEnd",
+	112: "StateBasedEffectsUpdateStart", 118: "ShoppingCardAppeared",
+	120: "ShopAction", 122: "ShopAction", 124: "ShopCardRemoved", 126: "ShopCardRemoved",
+	128: "ShopEnded", 130: "CardBought", 134: "PreviewDamageChanged",
+	136: "PlayerResult", 140: "ChargesChanged", 142: "PreviewDamageChanged",
+	116: "ShoppingCardShuffled",
 }
 
 // classicBuild is set true during WarmTraceTable when the replay uses the 1.0
@@ -157,9 +178,10 @@ var classicBuild bool
 
 func lookupTypeID(id uint64) string {
 	if classicBuild {
-		if n, ok := classicTypeIDs[id]; ok {
-			return n
-		}
+		// 1.0 uses its own enum verbatim; never the 2.0-seeded/learned table
+		// (which mis-learns ambiguous ids from delta-mangled diff signatures).
+		// Ids not in the classic table fall through to signature classification.
+		return classicTypeIDs[id]
 	}
 	learnedTypeIDsMu.Lock()
 	defer learnedTypeIDsMu.Unlock()
@@ -293,7 +315,8 @@ func blockTypeKey(tr Trace) int {
 // early in the stream would miss names that are only shape-learned from later
 // full states (extraction is otherwise single-pass).
 func WarmTraceTable(r *Reader) {
-	setBlockIDs(0, 0) // no relabel during the learning/detection pass
+	setBlockIDs(0, 0)    // no relabel during the learning/detection pass
+	classicBuild = false // resolved below; detection uses signature meanwhile
 	var seq []blockObs
 	for _, rec := range r.Records {
 		if rec.Type != MsgBoardGameState {
@@ -444,9 +467,27 @@ func ExtractTraces(payload []byte) []Trace {
 				name = "ScriptBlockEnd"
 			}
 		}
+		// A record with no type token AND no object anchor is a headerless delta
+		// fragment: the type/objectId tokens were elided (unchanged since a prior
+		// full state) and only mutated fields remain, so it can't be typed or
+		// attributed. Drop it rather than surface bare fN noise.
+		// A record with no type token AND no object anchor is not a real trace: the
+		// board-state codec keys every trace record by `type` and/or `objectId`, so
+		// a bare traceMsg with neither is a false-positive token match landing
+		// inside blob data (card_template_data is full of 4-byte tokens) or a
+		// delta-region over-read. Drop it — headerless traces don't exist.
+		if name == "" && r.tr.TypeID == 0 && r.tr.ObjectID == 0 {
+			continue
+		}
 		r.tr.Type = name
 		if len(r.msg) > 0 { // fieldless (empty) traces carry no fields
 			r.tr.Fields = decodeTraceFields(r.msg, name)
+		}
+		// A record with no recovered type id AND a corrupted (huge) field value is
+		// a delta false positive: a traceMsg token that landed in delta noise and
+		// happened to parse. Real records carry a type id or plausible values.
+		if r.tr.TypeID == 0 && hasHugeFieldValue(r.tr.Fields) {
+			continue
 		}
 		switch name {
 		case "ScriptBlockBegin":
@@ -469,6 +510,28 @@ func ExtractTraces(payload []byte) []Trace {
 		traces = append(traces, r.tr)
 	}
 	return traces
+}
+
+// hasHugeFieldValue reports whether any (possibly nested) field value exceeds
+// 2^40 — the signature of a corrupted varint read from delta noise. Signed
+// sentinels (e.g. -1/-2, which appear as ~2^64) are excluded: only positive
+// values in the implausible 2^40..2^63 band count.
+func hasHugeFieldValue(fields map[string]any) bool {
+	const hi = uint64(1) << 40
+	const signedFloor = ^uint64(0) - (1 << 20) // large negatives (-N) as unsigned
+	for _, v := range fields {
+		switch x := v.(type) {
+		case uint64:
+			if x > hi && x < signedFloor {
+				return true
+			}
+		case map[string]any:
+			if hasHugeFieldValue(x) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // singleHugeValue reports whether msg decodes to exactly one scalar exceeding
@@ -762,15 +825,34 @@ func decodeTraceFields(msg []byte, name string) map[string]any {
 				}
 			case signedField(key):
 				appendField(out, key, asSigned(f.V))
+			case isAttributeField(key) || isAttributeBlobField(key):
+				// A blob/attribute field that arrived as a varint is a diff-state
+				// delta over-read, not real data — drop it.
 			default:
 				appendField(out, key, f.V)
 			}
 		case wireBytes:
 			switch {
+			case key == "properties":
+				// repeated ContinuousEffectSingleProperty{attr_token, value_diff} —
+				// a plain protobuf, not a codec map. Merge each occurrence into one
+				// attr->diff map (attr_token is itself a murmur attribute token).
+				pm, _ := out[key].(map[string]any)
+				if pm == nil {
+					pm = map[string]any{}
+				}
+				if tok, val, ok := decodeSingleProperty(f.Bytes); ok {
+					nm := TokenName(tok)
+					if nm == "" {
+						nm = hexToken(tok)
+					}
+					pm[nm] = val
+				}
+				out[key] = pm
 			case isAttributeBlobField(key):
 				// A serialized attribute list (card template/stats, an entering
-				// improvement's card, an applied effect's properties): decode
-				// every token→value entry, not just the fixed card-instance keys.
+				// improvement's card): decode every token→value entry, not just the
+				// fixed card-instance keys.
 				appendField(out, key, attributeBlobToJSON(f.Bytes))
 			case isAttributeField(key):
 				appendField(out, key, attributesToJSON(decodeAttributes(f.Bytes)))
@@ -794,10 +876,30 @@ func isAttributeField(key string) bool {
 // template blob, an entering improvement's card, and applied-effect properties.
 func isAttributeBlobField(key string) bool {
 	switch key {
-	case "card_template_data", "card", "properties":
+	case "card_template_data", "card":
 		return true
 	}
 	return false
+}
+
+// decodeSingleProperty parses one ContinuousEffectSingleProperty
+// {attr_token(1), value_diff(2)} from an applied-effect's properties list.
+func decodeSingleProperty(b []byte) (tok uint32, val int64, ok bool) {
+	r := newPBReader(b)
+	for {
+		f, more, err := r.next()
+		if err != nil || !more {
+			break
+		}
+		switch f.Num {
+		case 1:
+			tok = uint32(f.V)
+			ok = true
+		case 2:
+			val = asSigned(f.V)
+		}
+	}
+	return tok, val, ok
 }
 
 // attributeBlobToJSON decodes a serialized attribute list (token→value tree,
@@ -806,16 +908,35 @@ func isAttributeBlobField(key string) bool {
 // as {hex,len}.
 func attributeBlobToJSON(b []byte) map[string]any {
 	out := map[string]any{}
-	for _, f := range decodeCodecMap(b) {
-		name := f.Name
-		if name == "" {
-			name = hexToken(f.Key)
+	// These blobs (card_template_data, card) are DELTA-encoded whenever they ride
+	// a diff state — which for CardTemplateOperation is always. The full-state
+	// codec can't parse a delta cleanly: the first varint (objectId) absorbs
+	// delta bytes and over-reads, mis-aligning every node after it, so the decoder
+	// then lands on blob bytes and manufactures bogus "#hex" tokens. Two guards
+	// make the output trustworthy instead of noisy:
+	//   1. decodeCodecMapN (no resync) stops at the first malformed node rather
+	//      than skipping ahead into the payload.
+	//   2. only keep RESOLVED tokens with plausible values — a misaligned 4-byte
+	//      read resolving to a *known* murmur token is vanishingly unlikely, so a
+	//      resolved name is real; an unresolved #hex here is a misalignment
+	//      artifact, and any value >= 2^32 is an over-read. Both are dropped.
+	for _, f := range decodeCodecMapN(b, 4096) {
+		if f.Name == "" {
+			continue // unresolved token in a delta blob: misalignment artifact
 		}
 		if f.Bytes != nil {
-			out[name] = decodeBytesValue(f.Bytes, 4)
-		} else {
-			out[name] = f.Int
+			out[f.Name] = decodeBytesValue(f.Bytes, 4)
+			continue
 		}
+		// value_diffs are signed u32: a value just below 2^32 is a small negative.
+		if f.Int >= (1<<32)-(1<<16) && f.Int < (1<<32) {
+			out[f.Name] = int64(int32(uint32(f.Int)))
+			continue
+		}
+		if f.Int >= 1<<32 {
+			continue // over-read varint (real object ids/attributes are u32)
+		}
+		out[f.Name] = f.Int
 	}
 	return out
 }
@@ -827,7 +948,7 @@ func signedField(key string) bool {
 	switch key {
 	case "old_combat_position", "new_combat_position", "combat_position",
 		"desired_combat_position", "old_arrow_direction", "arrow_direction",
-		"amount", "delta", "value_diff", "gold_delta":
+		"amount", "delta", "value_diff", "gold_delta", "value_final", "new", "old":
 		// gold/charge/attribute deltas are signed (a refund or loss is negative,
 		// stored as a large unsigned varint, e.g. 2^64-3 == -3)
 		return true
