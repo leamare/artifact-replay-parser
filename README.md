@@ -7,7 +7,10 @@ board objects, an `obtrace`-style phase trace, and exploratory packet dumps.
 | Game | Ext | Container | Board state |
 | --- | --- | --- | --- |
 | Artifact 2.0 (Foundry) | `.dem` | **Fully decoded** | **Objects (cards/heroes/creeps/towers) with owner, template id, attributes** |
-| Artifact 1.0 (Classic) | `.dcg` | Partial (keyframes + scavenged GC msgs) | Recovered from keyframe snapshots |
+| Artifact 1.0 (Classic) | `.dcg` | **Fully decoded** (whole-file Snappy) | **Full trace stream, objects, decks, GC metadata** |
+
+See [`docs/REPLAY-FORMAT.md`](docs/REPLAY-FORMAT.md) for the container and
+board-state format (both eras).
 
 ## Usage
 
@@ -65,10 +68,10 @@ to name trace types whose stable internal id isn't in the built-in table yet.
 more replays, writes a coverage report grouping trace-type ids into **known**
 (`id → CTraceMsg`), **unknown** (observed ids not yet named, with their field
 shape, enclosing script block, and a sample to identify them), and
-**tracesWithoutId** (proto `CTraceMsg_*` no id mapped to). `metadata/` holds a
-generated `trace-report.json` and an editable `tracetypes.json` (loadable via
-`-tracetypes`). Recording a console obtrace alongside a reference replay lets the
-unknown ids be matched to names and filled into `tracetypes.json`.
+**tracesWithoutId** (proto `CTraceMsg_*` no id mapped to). `metadata/` holds an
+editable `tracetypes.json` (loadable via `-tracetypes`). Recording a console
+obtrace alongside a reference replay lets the unknown ids be matched to names and
+filled into `tracetypes.json`.
 
 The trace tables (`internal/dcg/traces_data.go`) are generated from the 2.0
 proto by `internal/dcg/gen_traces.py`.
